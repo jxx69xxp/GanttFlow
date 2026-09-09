@@ -1,0 +1,78 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Settings {
+  id                  String   @id @default(cuid())
+  erpnextBaseUrl      String?
+  erpnextApiKey       String?
+  erpnextApiSecret    String?
+  sprintKickoffUrl    String?
+  sprintKickoffToken  String?
+  syncIntervalMinutes Int      @default(15)
+  updatedAt           DateTime @updatedAt
+}
+
+model TeamMember {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  role      String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+}
+
+model Task {
+  id            String    @id @default(cuid())
+  externalId    String    @unique
+  source        String
+  title         String
+  description   String?
+  assigneeEmail String?
+  status        String    @default("Not Started")
+  progress      Int       @default(0)
+  startDate     DateTime?
+  endDate       DateTime?
+  projectName   String?
+  sprintName    String?
+  sprintId      String?
+  isOverdue     Boolean   @default(false)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+model Sprint {
+  id         String   @id @default(cuid())
+  externalId String   @unique
+  name       String
+  startDate  DateTime
+  endDate    DateTime
+  status     String   @default("Active")
+  createdAt  DateTime @default(now())
+}
+
+model NotificationLog {
+  id       String   @id @default(cuid())
+  event    String
+  recipient String
+  taskId   String?
+  sprintId String?
+  status   String
+  errorMsg String?
+  sentAt   DateTime @default(now())
+}
+
+model SyncLog {
+  id           String   @id @default(cuid())
+  source       String
+  tasksAdded   Int      @default(0)
+  tasksUpdated Int      @default(0)
+  errors       Int      @default(0)
+  durationMs   Int?
+  ranAt        DateTime @default(now())
+}

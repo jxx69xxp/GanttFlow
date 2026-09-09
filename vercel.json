@@ -1,0 +1,10 @@
+{
+  "crons": [
+    { "path": "/api/cron",                 "schedule": "*/15 * * * *" },
+    { "path": "/api/cron/overdue-check",   "schedule": "0 8 * * *"   },
+    { "path": "/api/cron/sprint-reminder", "schedule": "0 9 * * *"   }
+  ],
+  "functions": {
+    "src/app/api/cron/route.ts": { "maxDuration": 60 }
+  }
+}
