@@ -5,7 +5,6 @@ import {
   ALMOST_OVERDUE_COLOR,
   STATUS_COLORS,
   barStatusLabel,
-  chartMonthStart,
   isAlmostOverdue,
   sprintWeekHeader,
   isOverdueTask,
@@ -60,7 +59,7 @@ function viewModes(sprintStart?: string | null, current?: string) {
   },
   {
     name: 'Month',
-    padding: ['0d', '1m'],
+    padding: ['0d', '0d'],
     step: '1m',
     date_format: 'YYYY-MM',
     column_width: 120,
@@ -69,7 +68,7 @@ function viewModes(sprintStart?: string | null, current?: string) {
   },
   {
     name: 'Year',
-    padding: ['0d', '1y'],
+    padding: ['0d', '0d'],
     step: '1y',
     date_format: 'YYYY',
     column_width: 120,
@@ -95,6 +94,13 @@ function rangeAnchor(from: string, to: string): GanttTask {
     source: 'local',
     externalId: RANGE_ID,
   }
+}
+
+function clampDate(value: string | undefined, min: string, max: string) {
+  const next = value || min
+  if (next < min) return min
+  if (next > max) return max
+  return next
 }
 
 function weekendIso(iso: string) {
@@ -243,17 +249,16 @@ export function GanttChart({ tasks, colors = STATUS_COLORS }: Props) {
 
       const starts = tasks.map(t => t.start).filter(Boolean).sort()
       const ends = tasks.map(t => t.end).filter(Boolean).sort()
-      const from = [
-        viewMode === 'Week' ? chartFrom : (chartMonthStart(chartFrom) || chartFrom),
-        starts[0],
-      ].filter(Boolean).sort()[0] || new Date().toISOString().slice(0, 10)
-      const to = [chartTo, ends.at(-1)].filter(Boolean).sort().at(-1) || from
+      const from = chartFrom || starts[0] || new Date().toISOString().slice(0, 10)
+      const filterTo = chartTo && chartTo >= from ? chartTo : (ends.at(-1) || from)
+      const boundTimeline = viewMode === 'Month' || viewMode === 'Year'
+      const to = boundTimeline ? filterTo : ([filterTo, ends.at(-1)].filter(Boolean).sort().at(-1) || from)
       const visible = tasks.length > 0 ? tasks : [rangeAnchor(from, to)]
       const byExternal = new Map(visible.map(t => [t.externalId, t.id]))
       const knownIds = new Set(visible.map(t => t.id))
       const frappeTasks = visible.map(t => {
-        const start = t.start || from
-        const end = t.end && t.end >= start ? t.end : start
+        const start = boundTimeline ? clampDate(t.start, from, to) : (t.start || from)
+        const end = boundTimeline ? clampDate(t.end || start, from, to) : (t.end && t.end >= start ? t.end : start)
         const deps = (t.dependencies ?? '')
           .split(',')
           .map(item => item.trim())
@@ -263,7 +268,7 @@ export function GanttChart({ tasks, colors = STATUS_COLORS }: Props) {
           id: t.id,
           name: t.id === RANGE_ID ? '' : barStatusLabel(t),
           start,
-          end,
+          end: end < start ? start : end,
           progress: t.status === 'Completed' ? 100 : t.progress,
           custom_class: barClass(t),
           ...(deps.length ? { dependencies: deps.join(', ') } : {}),
