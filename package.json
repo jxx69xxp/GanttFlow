@@ -2,10 +2,14 @@
   "name": "ganttflow",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "prisma generate && next build",
     "start": "next start",
+    "postinstall": "prisma generate",
     "lint": "eslint",
     "test:unit": "vitest run tests/unit",
     "test:e2e": "playwright test",
