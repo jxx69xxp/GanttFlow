@@ -30,6 +30,7 @@ export default function DashboardPage() {
   const tasks: GanttTask[] = data?.tasks ?? []
 
   return (
+    <div className="h-full min-h-0 overflow-y-auto">
     <div className="mx-auto max-w-5xl p-6">
       <h1 className="text-xl font-bold text-ink">Dashboard analytics</h1>
       <p className="mt-1 text-sm text-muted">
@@ -73,6 +74,7 @@ export default function DashboardPage() {
           </table>
         </div>
       )}
+    </div>
     </div>
   )
 }

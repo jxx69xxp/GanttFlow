@@ -25,6 +25,7 @@ export default function NotificationsPage() {
   }[] = data?.notifications ?? []
 
   return (
+    <div className="h-full min-h-0 overflow-y-auto">
     <div className="mx-auto max-w-3xl p-6">
       <h1 className="mb-6 text-xl font-bold text-ink">Notification Log</h1>
 
@@ -77,6 +78,7 @@ export default function NotificationsPage() {
           </table>
         </div>
       )}
+    </div>
     </div>
   )
 }

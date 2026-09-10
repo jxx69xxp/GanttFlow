@@ -147,6 +147,7 @@ export default function SettingsPage() {
   const teamMembers: { id: string; email: string; name?: string; role?: string; isActive: boolean }[] = data?.teamMembers ?? []
 
   return (
+    <div className="h-full min-h-0 overflow-y-auto">
     <div className="mx-auto max-w-2xl space-y-6 p-6">
       <h1 className="text-xl font-bold text-ink">Settings</h1>
 
@@ -303,6 +304,7 @@ export default function SettingsPage() {
           {toast}
         </div>
       )}
+    </div>
     </div>
   )
 }
