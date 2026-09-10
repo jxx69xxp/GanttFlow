@@ -10,13 +10,13 @@ test.describe('Gantt Chart', () => {
     await page.goto('/')
     // Either gantt chart or empty state should be visible
     const gantt = page.getByTestId('gantt-chart')
-    const empty = page.getByText(/No tasks found/)
+    const empty = page.getByText(/Set dates, then generate|Generate Gantt|New chart|No charts/)
     await expect(gantt.or(empty)).toBeVisible({ timeout: 10000 })
   })
 
   test('switches view modes', async ({ page }) => {
     await page.goto('/')
-    for (const mode of ['Day', 'Month', 'Quarter Year', 'Week']) {
+    for (const mode of ['Day', 'Month', 'Year', 'Week']) {
       await page.getByRole('button', { name: mode }).click()
       await expect(page.getByRole('button', { name: mode })).toHaveClass(/bg-blue-600/)
     }
@@ -47,15 +47,15 @@ test.describe('Settings page', () => {
   test('renders settings page', async ({ page }) => {
     await page.goto('/settings')
     await expect(page.getByText('Settings')).toBeVisible()
-    await expect(page.getByText('ERPNext Connection')).toBeVisible()
-    await expect(page.getByText('Sprint Kickoff Connection')).toBeVisible()
+    await expect(page.getByText('ERPNext API Access')).toBeVisible()
+    await expect(page.getByText('Sprint Kickoff API Access')).toBeVisible()
     await expect(page.getByText('Team Members')).toBeVisible()
   })
 
   test('can fill ERPNext credentials', async ({ page }) => {
     await page.goto('/settings')
-    await page.getByPlaceholder('https://yoursite.erpnext.com').fill('https://test.erpnext.com')
-    await expect(page.getByPlaceholder('https://yoursite.erpnext.com')).toHaveValue('https://test.erpnext.com')
+    await page.getByPlaceholder('https://erp.livro.systems').fill('https://test.erpnext.com')
+    await expect(page.getByPlaceholder('https://erp.livro.systems')).toHaveValue('https://test.erpnext.com')
   })
 
   test('can add team member', async ({ page }) => {

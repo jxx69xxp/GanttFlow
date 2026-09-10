@@ -1,9 +1,11 @@
 import { prisma } from '../db/prisma'
 import { decrypt } from '../encryption'
-import { ErpNextClient } from '../erpnext/client'
-import { transformErpTask } from '../erpnext/transformers'
+import { getErpNextClient } from '../erpnext/client'
+import { ganttRowsFromBacklogs } from '../erpnext/transformers'
+import { persistErpSprints } from '../frappe/persistSprint'
 import { SprintKickoffClient } from '../sprint-kickoff/client'
 import { transformSKTask } from '../sprint-kickoff/transformers'
+import { packTaskMeta } from '../tasks/meta'
 import { sendTaskAssigned, sendTaskCompleted } from '../email/resend'
 import type { SyncResult } from '../types'
 
@@ -18,34 +20,61 @@ export async function runSync(): Promise<SyncResult> {
     .map(m => m.email)
 
   // ── ERPNext sync ─────────────────────────────────────────────────────────
-  if (settings?.erpnextBaseUrl && settings.erpnextApiKey && settings.erpnextApiSecret) {
+  if (settings?.erpnextApiKey && settings.erpnextApiSecret) {
     try {
-      const client = new ErpNextClient({
-        baseUrl: settings.erpnextBaseUrl,
-        apiKey: decrypt(settings.erpnextApiKey),
-        apiSecret: decrypt(settings.erpnextApiSecret),
-      })
-      const rawTasks = await client.fetchTasks()
+      const client = getErpNextClient(settings)
+      if (!client) throw new Error('ERPNext API keys are missing')
 
-      for (const raw of rawTasks) {
-        const task = transformErpTask(raw)
+      const remoteSprints = await client.fetchSprints()
+      const boards = await persistErpSprints(remoteSprints)
+      const chartBySprint = new Map(boards.flatMap(board => [
+        [board.externalId, board.chartId],
+        [board.name, board.chartId],
+      ]))
+      const sprintIds = remoteSprints.map(s => s.id)
+      const backlogs = await client.fetchSprintBacklogs(sprintIds.length > 40 ? [] : sprintIds)
+      const tree = await client.resolveBacklogTree(backlogs)
+      const rawTasks = ganttRowsFromBacklogs(backlogs, tree)
+
+      for (const task of rawTasks) {
         const existing = await prisma.task.findUnique({ where: { externalId: task.externalId } })
+        const description = packTaskMeta(task.description, {
+          priority: task.priority,
+          workType: task.workType,
+          sprintPoints: task.sprintPoints,
+          module: task.module,
+          assigneeName: task.assigneeName,
+          qaAssignee: task.qaAssignee,
+          dateAssigned: task.dateAssigned,
+          dependencies: task.dependencies,
+          parentBacklogId: task.parentBacklogId,
+          parentBacklogName: task.parentBacklogName,
+        })
+        const chartId = chartBySprint.get(task.sprintId ?? '')
+          ?? chartBySprint.get(task.sprintName ?? '')
+          ?? null
 
         await prisma.task.upsert({
           where: { externalId: task.externalId },
           create: {
             externalId: task.externalId, source: 'erpnext',
-            title: task.name, description: task.description,
+            title: task.name, description,
             assigneeEmail: task.assigneeEmail, status: task.status,
             progress: task.progress, startDate: task.start ? new Date(task.start) : null,
             endDate: task.end ? new Date(task.end) : null,
             projectName: task.projectName, sprintName: task.sprintName, sprintId: task.sprintId,
+            chartId,
             isOverdue: task.status === 'Overdue',
           },
           update: {
             title: task.name, status: task.status, progress: task.progress,
             startDate: task.start ? new Date(task.start) : null,
             endDate: task.end ? new Date(task.end) : null,
+            assigneeEmail: task.assigneeEmail,
+            description,
+            projectName: task.projectName,
+            sprintName: task.sprintName, sprintId: task.sprintId,
+            chartId,
             isOverdue: task.status === 'Overdue',
           },
         })
@@ -75,11 +104,12 @@ export async function runSync(): Promise<SyncResult> {
   }
 
   // ── Sprint Kickoff sync ───────────────────────────────────────────────────
-  if (settings?.sprintKickoffUrl && settings.sprintKickoffToken) {
+  if (settings?.sprintKickoffUrl && settings.sprintKickoffApiKey && settings.sprintKickoffApiSecret) {
     try {
       const client = new SprintKickoffClient({
         baseUrl: settings.sprintKickoffUrl,
-        apiToken: decrypt(settings.sprintKickoffToken),
+        apiKey: decrypt(settings.sprintKickoffApiKey),
+        apiSecret: decrypt(settings.sprintKickoffApiSecret),
       })
       const sprints = await client.fetchSprints()
 
@@ -90,7 +120,12 @@ export async function runSync(): Promise<SyncResult> {
             externalId: sprint.id, name: sprint.name, status: sprint.status,
             startDate: new Date(sprint.start_date), endDate: new Date(sprint.end_date),
           },
-          update: { name: sprint.name, status: sprint.status },
+          update: {
+            name: sprint.name,
+            status: sprint.status,
+            startDate: new Date(sprint.start_date),
+            endDate: new Date(sprint.end_date),
+          },
         })
 
         const tasks = await client.fetchTasks(sprint.id)
@@ -111,6 +146,8 @@ export async function runSync(): Promise<SyncResult> {
             },
             update: {
               title: task.name, status: task.status, progress: task.progress,
+              startDate: task.start ? new Date(task.start) : null,
+              endDate: task.end ? new Date(task.end) : null,
               isOverdue: task.status === 'Overdue',
             },
           })

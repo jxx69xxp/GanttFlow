@@ -3,8 +3,9 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 model Settings {
@@ -12,9 +13,12 @@ model Settings {
   erpnextBaseUrl      String?
   erpnextApiKey       String?
   erpnextApiSecret    String?
-  sprintKickoffUrl    String?
-  sprintKickoffToken  String?
-  syncIntervalMinutes Int      @default(15)
+  sprintKickoffUrl      String?
+  sprintKickoffToken    String?
+  sprintKickoffApiKey   String?
+  sprintKickoffApiSecret String?
+  statusColors          String?
+  syncIntervalMinutes   Int      @default(15)
   updatedAt           DateTime @updatedAt
 }
 
@@ -25,6 +29,17 @@ model TeamMember {
   role      String?
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
+}
+
+model Chart {
+  id        String   @id @default(cuid())
+  name      String
+  startDate DateTime
+  endDate   DateTime
+  viewMode  String   @default("Week")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  tasks     Task[]
 }
 
 model Task {
@@ -41,6 +56,8 @@ model Task {
   projectName   String?
   sprintName    String?
   sprintId      String?
+  chartId       String?
+  chart         Chart?    @relation(fields: [chartId], references: [id], onDelete: Cascade)
   isOverdue     Boolean   @default(false)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt

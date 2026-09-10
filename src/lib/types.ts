@@ -1,5 +1,5 @@
 export type TaskStatus = 'Not Started' | 'In Progress' | 'Completed' | 'Overdue' | 'Blocked'
-export type ViewMode = 'Day' | 'Week' | 'Month' | 'Quarter Year'
+export type ViewMode = 'Day' | 'Week' | 'Month' | 'Year'
 
 export interface GanttTask {
   id: string
@@ -11,13 +11,33 @@ export interface GanttTask {
   custom_class?: string
   // extended
   status: TaskStatus
+  erpStatus?: string | null
+  devopsStatus?: string | null
   assigneeEmail?: string | null
   projectName?: string | null
   sprintName?: string | null
   sprintId?: string | null
   description?: string | null
+  priority?: string | null
+  workType?: string | null
+  sprintPoints?: string | null
+  module?: string | null
+  assigneeName?: string | null
+  qaAssignee?: string | null
+  dateAssigned?: string | null
+  parentBacklogId?: string | null
+  parentBacklogName?: string | null
   source: string
   externalId: string
+}
+
+export interface GanttBoard {
+  id: string
+  name: string
+  startDate: string
+  endDate: string
+  viewMode: ViewMode
+  taskCount: number
 }
 
 export interface GanttSprint {
@@ -27,6 +47,8 @@ export interface GanttSprint {
   endDate: string
   status: string
   tasks: GanttTask[]
+  externalId?: string
+  chartId?: string | null
 }
 
 export interface TeamMember {
@@ -58,6 +80,83 @@ export const STATUS_COLORS: Record<TaskStatus, string> = {
   'Not Started': '#94A3B8',
   'In Progress': '#3B82F6',
   'Completed':   '#22C55E',
-  'Overdue':     '#EF4444',
-  'Blocked':     '#F97316',
+  'Overdue':     '#F97316',
+  'Blocked':     '#C2410C',
+}
+
+export const TASK_STATUSES: TaskStatus[] = [
+  'Not Started', 'In Progress', 'Completed', 'Overdue', 'Blocked',
+]
+
+/** How often the open sprint re-imports from ERP while the Gantt is visible. */
+export const LIVE_SYNC_MS = 8_000
+
+export const ALMOST_OVERDUE_DAYS = 3
+export const ALMOST_OVERDUE_COLOR = '#EAB308'
+export const ALMOST_OVERDUE_LABEL = 'Almost Overdue'
+
+export function isOverdueTask(task: { end?: string; status?: string }) {
+  if (task.status === 'Completed') return false
+  if (task.status === 'Overdue') return true
+  if (!task.end) return false
+  const end = new Date(`${task.end}T00:00:00`)
+  if (Number.isNaN(end.getTime())) return false
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  return end < today
+}
+
+export function isAlmostOverdue(task: { end?: string; status?: string }) {
+  if (!task.end || task.status === 'Completed' || isOverdueTask(task)) return false
+  const end = new Date(`${task.end}T00:00:00`)
+  if (Number.isNaN(end.getTime())) return false
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const days = Math.ceil((end.getTime() - today.getTime()) / 86400000)
+  return days >= 0 && days <= ALMOST_OVERDUE_DAYS
+}
+
+export function barStatusLabel(task: {
+  status?: string
+  erpStatus?: string | null
+  devopsStatus?: string | null
+}) {
+  const parts = [task.erpStatus || task.status, task.devopsStatus]
+    .map(value => value?.trim())
+    .filter((value): value is string => Boolean(value))
+  return [...new Set(parts)].join(' · ')
+}
+
+export function chartMonthStart(iso?: string | null) {
+  if (!iso) return ''
+  return `${iso.slice(0, 7)}-01`
+}
+
+export function sprintAnalytics(tasks: Array<{ end?: string; status?: string }>) {
+  let ongoing = 0
+  let completed = 0
+  let overdue = 0
+  for (const task of tasks) {
+    if (task.status === 'Completed') completed += 1
+    else if (isOverdueTask(task)) overdue += 1
+    else ongoing += 1
+  }
+  return { total: tasks.length, ongoing, completed, overdue }
+}
+
+export function toLocalYmd(date: Date) {
+  const y = date.getFullYear()
+  const m = String(date.getMonth() + 1).padStart(2, '0')
+  const d = String(date.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
+}
+
+export function mergeStatusColors(raw?: string | null): Record<TaskStatus, string> {
+  if (!raw) return { ...STATUS_COLORS }
+  try {
+    const parsed = JSON.parse(raw) as Partial<Record<TaskStatus, string>>
+    return { ...STATUS_COLORS, ...parsed }
+  } catch {
+    return { ...STATUS_COLORS }
+  }
 }

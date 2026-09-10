@@ -1,38 +1,50 @@
 'use client'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
-import { BarChart2, Bell, Settings, ChevronRight } from 'lucide-react'
+import { usePathname, useSearchParams } from 'next/navigation'
+import { BarChart2, Bell, LayoutDashboard, Settings, Plus } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useQuery } from '@tanstack/react-query'
 
 const NAV = [
   { href: '/', label: 'Gantt Chart', icon: BarChart2 },
+  { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/notifications', label: 'Notifications', icon: Bell },
   { href: '/settings', label: 'Settings', icon: Settings },
 ]
 
+interface SprintLink {
+  id: string
+  name: string
+  externalId?: string
+  chartId?: string | null
+}
+
 export function Sidebar() {
   const pathname = usePathname()
+  const searchParams = useSearchParams()
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => setMounted(true), [])
+  const activeSprint = mounted ? searchParams.get('sprint') : null
 
   const { data } = useQuery({
-    queryKey: ['tasks'],
-    queryFn: () => fetch('/api/tasks').then(r => r.json()),
+    queryKey: ['sprints'],
+    queryFn: () => fetch('/api/sprints').then(r => r.json()),
   })
-
-  const sprints: { name: string }[] = data?.sprints ?? []
+  const sprints: SprintLink[] = data?.sprints ?? []
 
   return (
-    <aside className="hidden w-56 flex-col border-r border-slate-700 bg-slate-900 md:flex">
+    <aside className="hidden w-56 flex-col border-r border-line bg-panel md:flex">
       <nav className="flex-1 space-y-1 p-3">
         {NAV.map(({ href, label, icon: Icon }) => (
           <Link
             key={href}
             href={href}
             className={cn(
-              'flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
-              pathname === href
-                ? 'bg-blue-600/20 text-blue-400'
-                : 'text-slate-400 hover:bg-slate-800 hover:text-slate-100'
+              'flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium',
+              (href === '/' ? pathname === '/' : pathname === href)
+                ? 'bg-blue-600 text-white'
+                : 'text-muted hover:bg-hover hover:text-ink'
             )}
           >
             <Icon className="h-4 w-4" />
@@ -41,25 +53,43 @@ export function Sidebar() {
         ))}
       </nav>
 
-      {sprints.length > 0 && (
-        <div className="border-t border-slate-700 p-3">
-          <p className="mb-2 px-3 text-xs font-semibold uppercase tracking-wider text-slate-500">
+      <div className="border-t border-line p-3">
+        <div className="mb-2 flex items-center justify-between px-1">
+          <p className="text-xs font-semibold uppercase tracking-wider text-soft">
             Sprints
           </p>
-          {sprints.map((s) => (
-            <div
-              key={s.name}
-              className="flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs text-slate-400"
-            >
-              <ChevronRight className="h-3 w-3" />
-              {s.name}
-            </div>
-          ))}
+          <Link
+            href="/?new=1"
+            className="rounded-md p-1 text-soft hover:bg-hover hover:text-ink"
+            title="New sprint"
+          >
+            <Plus className="h-3.5 w-3.5" />
+          </Link>
         </div>
-      )}
+        {sprints.length === 0 && (
+          <p className="px-1 text-xs text-soft">No sprints yet</p>
+        )}
+        {sprints.map(s => {
+          const key = s.externalId || s.id
+          return (
+            <Link
+              key={key}
+              href={`/?sprint=${encodeURIComponent(key)}${s.chartId ? `&chart=${s.chartId}` : ''}`}
+              className={cn(
+                'block truncate rounded-lg px-3 py-1.5 text-xs',
+                activeSprint === key
+                  ? 'bg-hover font-semibold text-ink'
+                  : 'text-muted hover:bg-hover hover:text-ink'
+              )}
+            >
+              {s.name}
+            </Link>
+          )
+        })}
+      </div>
 
-      <div className="border-t border-slate-700 p-3">
-        <p className="px-3 text-xs text-slate-600">GanttFlow v1.0</p>
+      <div className="border-t border-line p-3">
+        <p className="px-3 text-xs text-soft">GanttFlow v1.0</p>
       </div>
     </aside>
   )

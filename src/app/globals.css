@@ -1,26 +1,124 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root,
+html[data-theme='light'] {
+  --app: #f4f7fb;
+  --panel: #ffffff;
+  --input: #f8fafc;
+  --ink: #0f172a;
+  --muted: #334155;
+  --soft: #64748b;
+  --line: #d8e0ea;
+  --hover: #e8eef6;
+  --gantt-bg: #ffffff;
+  --gantt-text: #334155;
+  --gantt-label: #0f172a;
+  --gantt-grid: #e2e8f0;
+  --g-arrow-color: #334155;
+  --g-bar-color: #fff;
+  --g-bar-border: #fff;
+  --g-tick-color-thick: #cbd5e1;
+  --g-tick-color: #e2e8f0;
+  --g-actions-background: #eef2f6;
+  --g-border-color: #e2e8f0;
+  --g-text-muted: #475569;
+  --g-text-light: #fff;
+  --g-text-dark: #0f172a;
+  --g-progress-color: #cbd5e1;
+  --g-handle-color: #475569;
+  --g-weekend-label-color: #cbd5e1;
+  --g-expected-progress: #c4c4e9;
+  --g-header-background: #ffffff;
+  --g-row-color: #ffffff;
+  --g-row-border-color: #d8e0ea;
+  --g-today-highlight: #0f172a;
+  --g-popup-actions: #eef2f6;
+  --g-weekend-highlight-color: #f1f5f9;
+}
+
+html.dark,
+html[data-theme='dark'] {
+  --app: #0b1220;
+  --panel: #111827;
+  --input: #1e293b;
+  --ink: #f8fafc;
+  --muted: #cbd5e1;
+  --soft: #94a3b8;
+  --line: #334155;
+  --hover: #1e293b;
+  --gantt-bg: #0b1220;
+  --gantt-text: #cbd5e1;
+  --gantt-label: #f8fafc;
+  --gantt-grid: #1e293b;
+  --g-arrow-color: #e2e8f0;
+  --g-bar-color: #1e293b;
+  --g-bar-border: #334155;
+  --g-tick-color-thick: #1e293b;
+  --g-tick-color: #0f172a;
+  --g-actions-background: #1e293b;
+  --g-border-color: #1e293b;
+  --g-text-muted: #94a3b8;
+  --g-text-light: #ffffff;
+  --g-text-dark: #f8fafc;
+  --g-progress-color: #334155;
+  --g-handle-color: #cbd5e1;
+  --g-weekend-label-color: #334155;
+  --g-expected-progress: #475569;
+  --g-header-background: #111827;
+  --g-row-color: #0b1220;
+  --g-row-border-color: #334155;
+  --g-today-highlight: #94a3b8;
+  --g-popup-actions: #1e293b;
+  --g-weekend-highlight-color: #111827;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-app: var(--app);
+  --color-panel: var(--panel);
+  --color-input: var(--input);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-soft: var(--soft);
+  --color-line: var(--line);
+  --color-hover: var(--hover);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  color-scheme: light;
+}
+
+html.dark {
+  color-scheme: dark;
+}
+
+html, body {
+  background: var(--app);
+  color: var(--ink);
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: inherit;
+}
+
+.gantt .grid-row {
+  fill: var(--gantt-bg);
+}
+.gantt .row-line,
+.gantt .tick {
+  stroke: var(--gantt-grid);
+}
+.gantt .grid-header {
+  fill: var(--panel);
+}
+.gantt .holiday-highlight,
+.gantt .weekend-highlight {
+  fill: var(--hover);
+}
+.gantt-container .popup-wrapper {
+  background: var(--panel);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  box-shadow: 0 10px 30px rgb(15 23 42 / 0.12);
 }

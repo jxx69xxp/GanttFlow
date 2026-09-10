@@ -21,3 +21,9 @@ export function maskSecret(value: string | null | undefined): string {
   if (!value) return ''
   return '•'.repeat(Math.min(value.length, 16))
 }
+
+/** Masked placeholders (••••) must not be written back as the real secret. */
+export function isMaskedSecret(value: string | null | undefined): boolean {
+  if (!value) return true
+  return /^[•]+$/.test(value.trim())
+}
