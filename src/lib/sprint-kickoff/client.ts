@@ -65,7 +65,7 @@ export class SprintKickoffClient {
           ...mapFrappeSprint(row),
           tasks: [],
         }))
-        .filter(s => isFocusedSprint(s.id, s.name))
+        .filter((s: MappedSprint) => isFocusedSprint(s.id, s.name))
     }
 
     const rest = await fetch(`${this.baseUrl}/api/sprints?status=active`, {

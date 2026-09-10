@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { transformErpTask, transformSprintBacklog, ganttRowsFromBacklogs } from '@/lib/erpnext/transformers'
+import type { ErpSprintBacklog } from '@/lib/erpnext/client'
 import { transformSKTask } from '@/lib/sprint-kickoff/transformers'
 import { mapFrappeSprint, frappeSprintPayload, frappeSprintListFilters, isFocusedSprint, sprintAssignKeys, sprintsFromBacklogs, toSprintDocId } from '@/lib/frappe/sprint'
 import { barStatusLabel, chartMonthStart, sprintAnalytics } from '@/lib/types'
@@ -226,7 +227,7 @@ describe('transformSprintBacklog', () => {
     }
     const rows = ganttRowsFromBacklogs(
       [parent, nestedParent],
-      new Map([
+      new Map<string, ErpSprintBacklog>([
         [parent.name, parent],
         [child.name, child],
         [nestedParent.name, nestedParent],
