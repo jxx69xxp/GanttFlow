@@ -19,7 +19,9 @@ interface GanttStore {
   chartFrom: string
   chartTo: string
   chartReady: boolean
+  sidebarOpen: boolean
   setViewMode: (m: ViewMode) => void
+  toggleSidebar: () => void
   setFilter: (key: keyof GanttFilters, value: string) => void
   resetFilters: () => void
   selectTask: (t: GanttTask | null) => void
@@ -51,7 +53,15 @@ export const useGanttStore = create<GanttStore>(set => ({
   chartFrom: '',
   chartTo: '',
   chartReady: false,
+  sidebarOpen: true,
   setViewMode: m => set({ viewMode: m }),
+  toggleSidebar: () => set(s => {
+    const sidebarOpen = !s.sidebarOpen
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('ganttflow-sidebar', sidebarOpen ? 'open' : 'hidden')
+    }
+    return { sidebarOpen }
+  }),
   setFilter: (key, value) =>
     set(s => ({ filters: { ...s.filters, [key]: value } })),
   resetFilters: () => set(s => ({

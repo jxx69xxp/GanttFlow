@@ -5,6 +5,7 @@ import { usePathname, useSearchParams } from 'next/navigation'
 import { BarChart2, Bell, LayoutDashboard, Settings, Plus } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useQuery } from '@tanstack/react-query'
+import { useGanttStore } from '@/store/ganttStore'
 
 const NAV = [
   { href: '/', label: 'Gantt Chart', icon: BarChart2 },
@@ -24,7 +25,13 @@ export function Sidebar() {
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const [mounted, setMounted] = useState(false)
-  useEffect(() => setMounted(true), [])
+  const sidebarOpen = useGanttStore(s => s.sidebarOpen)
+  useEffect(() => {
+    setMounted(true)
+    if (localStorage.getItem('ganttflow-sidebar') === 'hidden') {
+      useGanttStore.setState({ sidebarOpen: false })
+    }
+  }, [])
   const activeSprint = mounted ? searchParams.get('sprint') : null
 
   const { data } = useQuery({
@@ -34,7 +41,10 @@ export function Sidebar() {
   const sprints: SprintLink[] = data?.sprints ?? []
 
   return (
-    <aside className="hidden w-56 flex-col border-r border-line bg-panel md:flex">
+    <aside suppressHydrationWarning className={cn(
+      'flex-col border-r border-line bg-panel',
+      !mounted ? 'hidden w-52 md:flex' : sidebarOpen ? 'flex w-52' : 'hidden',
+    )}>
       <nav className="flex-1 space-y-1 p-3">
         {NAV.map(({ href, label, icon: Icon }) => (
           <Link

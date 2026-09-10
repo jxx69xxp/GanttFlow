@@ -1,17 +1,20 @@
 'use client'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { RefreshCw, Settings, BarChart2, Moon, Sun } from 'lucide-react'
+import { RefreshCw, Settings, BarChart2, Moon, Sun, PanelLeft } from 'lucide-react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { cn } from '@/lib/utils'
 import { useState } from 'react'
 import { useTheme } from './ThemeProvider'
+import { useGanttStore } from '@/store/ganttStore'
 
 export function TopNav() {
   const pathname = usePathname()
   const qc = useQueryClient()
   const [toast, setToast] = useState('')
   const { theme, toggle } = useTheme()
+  const toggleSidebar = useGanttStore(s => s.toggleSidebar)
+  const sidebarOpen = useGanttStore(s => s.sidebarOpen)
 
   const syncMutation = useMutation({
     mutationFn: () => fetch('/api/sync', { method: 'POST' }).then(r => r.json()),
@@ -30,6 +33,15 @@ export function TopNav() {
     <>
       <nav className="flex h-14 items-center justify-between border-b border-line bg-panel px-4">
         <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={toggleSidebar}
+            className="flex h-9 w-9 items-center justify-center rounded-md border border-line bg-input text-ink hover:bg-hover"
+            aria-label={sidebarOpen ? 'Hide menu' : 'Show menu'}
+            title={sidebarOpen ? 'Hide menu' : 'Show menu'}
+          >
+            <PanelLeft className="h-4 w-4" />
+          </button>
           <BarChart2 className="h-5 w-5 text-blue-600" />
           <span className="text-lg font-bold tracking-tight text-ink">GanttFlow</span>
         </div>

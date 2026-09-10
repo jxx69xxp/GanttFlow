@@ -108,7 +108,7 @@ export function GanttView() {
   }
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
       <GanttToolbar
         sprints={sprints}
         selectedSprintId={activeSprint?.externalId || activeSprint?.id || ''}
@@ -116,9 +116,10 @@ export function GanttView() {
         colors={colors}
         onSelectSprint={goToSprint}
         onCreatedSprint={goToSprint}
+        tasks={tasks}
       />
 
-      <div className="flex-1 overflow-auto">
+      <div className="min-h-0 flex-1 overflow-hidden">
         {showSetup ? (
           <GanttSetup onCreated={goToChart} />
         ) : !activeSprint || isLoading ? (
@@ -129,11 +130,11 @@ export function GanttView() {
             </div>
           </div>
         ) : (
-          <div className="flex h-full min-h-0 flex-col">
-            <div className="border-b border-line bg-panel">
+          <div className="flex h-full min-h-0 flex-col overflow-hidden">
+            <div className="shrink-0 border-b border-line bg-panel">
               <SprintAnalytics tasks={tasks} compact />
             </div>
-            <div className="min-h-0 flex-1">
+            <div className="min-h-0 flex-1 overflow-hidden">
               <GanttChart tasks={tasks} colors={colors} />
             </div>
           </div>

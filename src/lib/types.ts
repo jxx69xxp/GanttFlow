@@ -143,11 +143,11 @@ function localDay(value: string | Date) {
 export function formatSprintWeek(weekStart: Date) {
   const weekEnd = new Date(weekStart)
   weekEnd.setDate(weekStart.getDate() + 4)
-  const startMonth = weekStart.toLocaleString('en', { month: 'long' })
+  const startMonth = weekStart.toLocaleString('en', { month: 'short' })
   if (weekStart.getMonth() === weekEnd.getMonth()) {
-    return `${startMonth} ${weekStart.getDate()}-${weekEnd.getDate()}`
+    return `${startMonth} ${weekStart.getDate()}–${weekEnd.getDate()}`
   }
-  return `${startMonth} ${weekStart.getDate()}-${weekEnd.toLocaleString('en', { month: 'long' })} ${weekEnd.getDate()}`
+  return `${startMonth} ${weekStart.getDate()}–${weekEnd.toLocaleString('en', { month: 'short' })} ${weekEnd.getDate()}`
 }
 
 /** Week header from sprint start, e.g. Sept 7 → "September 7-11". */

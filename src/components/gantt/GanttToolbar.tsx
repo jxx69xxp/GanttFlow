@@ -1,11 +1,13 @@
 'use client'
-import { Search, X, CalendarRange, Columns3, Flag } from 'lucide-react'
+import { useState } from 'react'
+import { Search, X, CalendarRange, Columns3, Flag, FileSpreadsheet } from 'lucide-react'
 import { useGanttStore } from '@/store/ganttStore'
 import { cn, formatDate } from '@/lib/utils'
 import {
   ALMOST_OVERDUE_COLOR,
   ALMOST_OVERDUE_LABEL,
   TASK_STATUSES,
+  type GanttTask,
   type TaskStatus,
   type ViewMode,
 } from '@/lib/types'
@@ -31,12 +33,14 @@ interface Props {
   colors: Record<TaskStatus, string>
   onSelectSprint: (sprint: SprintOption) => void
   onCreatedSprint: (sprint: SprintOption) => void
+  tasks?: GanttTask[]
 }
 
 export function GanttToolbar({
-  sprints, selectedSprintId, assignees, colors, onSelectSprint, onCreatedSprint,
+  sprints, selectedSprintId, assignees, colors, onSelectSprint, onCreatedSprint, tasks = [],
 }: Props) {
   const qc = useQueryClient()
+  const [exporting, setExporting] = useState(false)
   const { viewMode, filters, chartFrom, chartTo, chartId, chartReady, setViewMode, setFilter, resetFilters, generateChart, extendChart } = useGanttStore()
   const selectedSprint = sprints.find(s =>
     s.externalId === selectedSprintId
@@ -58,7 +62,7 @@ export function GanttToolbar({
   }
 
   return (
-    <div className="space-y-2 border-b border-line bg-panel px-4 py-3">
+    <div className="space-y-1.5 border-b border-line bg-panel px-3 py-2">
       <div className="flex items-start gap-2 flex-wrap">
         <div className="flex flex-col gap-1">
           <div className="flex items-center gap-1">
@@ -135,6 +139,29 @@ export function GanttToolbar({
             Extend columns
           </button>
         )}
+        <button
+          type="button"
+          disabled={exporting || tasks.length === 0}
+          onClick={async () => {
+            setExporting(true)
+            try {
+              const { exportSprintExcel } = await import('@/lib/export/excel')
+              await exportSprintExcel({
+                sprintName: selectedSprint?.name || 'Sprint',
+                sprintId: selectedSprint?.externalId || selectedSprint?.id,
+                startDate: selectedSprint?.startDate,
+                endDate: selectedSprint?.endDate,
+                tasks,
+              })
+            } finally {
+              setExporting(false)
+            }
+          }}
+          className="mt-0.5 flex items-center gap-1.5 rounded-md border border-line bg-input px-3 py-1 text-xs font-semibold text-ink hover:bg-hover disabled:opacity-50"
+        >
+          <FileSpreadsheet className="h-3.5 w-3.5 text-emerald-600" />
+          {exporting ? 'Exporting…' : 'Export Excel'}
+        </button>
 
         <div className="relative mt-0.5">
           <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-soft" />

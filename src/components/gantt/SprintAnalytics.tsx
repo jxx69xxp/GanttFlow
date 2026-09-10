@@ -14,9 +14,21 @@ export function SprintAnalytics({
   const stats = sprintAnalytics(tasks)
   const overdueTasks = tasks.filter(isOverdueTask)
 
+  if (compact) {
+    return (
+      <div className="flex flex-wrap items-center gap-3 px-3 py-1.5 text-xs">
+        <span className="font-semibold text-ink">Ongoing {stats.ongoing}</span>
+        <span className="text-emerald-700 dark:text-emerald-400">Completed {stats.completed}</span>
+        <span className={stats.overdue > 0 ? 'font-semibold text-orange-600' : 'text-soft'}>
+          Overdue {stats.overdue}
+        </span>
+      </div>
+    )
+  }
+
   return (
-    <div className={cn('space-y-3', compact ? 'px-4 py-3' : '')}>
-      <div className={cn('grid gap-3', compact ? 'grid-cols-3' : 'grid-cols-1 sm:grid-cols-3')}>
+    <div className="space-y-3">
+      <div className="grid gap-3 grid-cols-1 sm:grid-cols-3">
         <StatCard
           label="Ongoing"
           value={stats.ongoing}
