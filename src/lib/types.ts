@@ -132,6 +132,39 @@ export function chartMonthStart(iso?: string | null) {
   return `${iso.slice(0, 7)}-01`
 }
 
+function localDay(value: string | Date) {
+  if (typeof value === 'string') {
+    const [y, m, d] = value.slice(0, 10).split('-').map(Number)
+    return new Date(y, (m || 1) - 1, d || 1)
+  }
+  return new Date(value.getFullYear(), value.getMonth(), value.getDate())
+}
+
+export function formatSprintWeek(weekStart: Date) {
+  const weekEnd = new Date(weekStart)
+  weekEnd.setDate(weekStart.getDate() + 4)
+  const startMonth = weekStart.toLocaleString('en', { month: 'long' })
+  if (weekStart.getMonth() === weekEnd.getMonth()) {
+    return `${startMonth} ${weekStart.getDate()}-${weekEnd.getDate()}`
+  }
+  return `${startMonth} ${weekStart.getDate()}-${weekEnd.toLocaleString('en', { month: 'long' })} ${weekEnd.getDate()}`
+}
+
+/** Week header from sprint start, e.g. Sept 7 → "September 7-11". */
+export function sprintWeekHeader(d: Date, last: Date | undefined, sprintStart?: string | null) {
+  const anchor = localDay(sprintStart || toLocalYmd(d))
+  const day = localDay(d)
+  const diff = Math.round((day.getTime() - anchor.getTime()) / 86400000)
+  const weekIndex = Math.floor(diff / 7)
+  if (last) {
+    const lastDiff = Math.round((localDay(last).getTime() - anchor.getTime()) / 86400000)
+    if (Math.floor(lastDiff / 7) === weekIndex) return ''
+  }
+  const weekStart = new Date(anchor)
+  weekStart.setDate(anchor.getDate() + weekIndex * 7)
+  return formatSprintWeek(weekStart)
+}
+
 export function sprintAnalytics(tasks: Array<{ end?: string; status?: string }>) {
   let ongoing = 0
   let completed = 0

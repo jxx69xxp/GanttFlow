@@ -3,7 +3,7 @@ import { transformErpTask, transformSprintBacklog, ganttRowsFromBacklogs } from 
 import type { ErpSprintBacklog } from '@/lib/erpnext/client'
 import { transformSKTask } from '@/lib/sprint-kickoff/transformers'
 import { mapFrappeSprint, frappeSprintPayload, frappeSprintListFilters, isFocusedSprint, sprintAssignKeys, sprintsFromBacklogs, toSprintDocId } from '@/lib/frappe/sprint'
-import { barStatusLabel, chartMonthStart, sprintAnalytics } from '@/lib/types'
+import { barStatusLabel, chartMonthStart, sprintAnalytics, sprintWeekHeader } from '@/lib/types'
 
 describe('transformErpTask', () => {
   it('maps all Task fields to GanttTask', () => {
@@ -281,5 +281,14 @@ describe('sprint analytics', () => {
     expect(barStatusLabel({ erpStatus: 'On Hold', devopsStatus: 'For Testing' })).toBe('On Hold · For Testing')
     expect(barStatusLabel({ erpStatus: 'Working', devopsStatus: '' })).toBe('Working')
     expect(barStatusLabel({ status: 'Not Started' })).toBe('Not Started')
+  })
+
+  it('labels sprint weeks from the sprint start date', () => {
+    const start = new Date(2026, 8, 7)
+    const mid = new Date(2026, 8, 10)
+    const next = new Date(2026, 8, 14)
+    expect(sprintWeekHeader(start, undefined, '2026-09-07')).toBe('September 7-11')
+    expect(sprintWeekHeader(mid, start, '2026-09-07')).toBe('')
+    expect(sprintWeekHeader(next, mid, '2026-09-07')).toBe('September 14-18')
   })
 })

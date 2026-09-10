@@ -7,6 +7,7 @@ import {
   barStatusLabel,
   chartMonthStart,
   isAlmostOverdue,
+  sprintWeekHeader,
   isOverdueTask,
   toLocalYmd,
   type GanttTask,
@@ -30,19 +31,8 @@ function monthChanged(d: Date, last?: Date) {
   return !last || d.getMonth() !== last.getMonth() || d.getFullYear() !== last.getFullYear()
 }
 
-function weekRange(d: Date, last?: Date) {
-  const end = new Date(d)
-  end.setDate(end.getDate() + 6)
-  const startLabel = !last || d.getMonth() !== last.getMonth()
-    ? d.toLocaleString('en', { day: 'numeric', month: 'short' })
-    : String(d.getDate())
-  const endLabel = end.getMonth() !== d.getMonth()
-    ? end.toLocaleString('en', { day: 'numeric', month: 'short' })
-    : String(end.getDate())
-  return `${startLabel} - ${endLabel}`
-}
-
-const VIEW_MODES = [
+function viewModes(sprintStart?: string | null, current?: string) {
+  const modes = [
   {
     name: 'Day',
     padding: ['0d', '3d'],
@@ -55,11 +45,11 @@ const VIEW_MODES = [
   {
     name: 'Week',
     padding: ['0d', '7d'],
-    step: '7d',
+    step: '1d',
     date_format: 'YYYY-MM-DD',
-    column_width: 140,
-    lower_text: weekRange,
-    upper_text: (d: Date, last?: Date) => monthChanged(d, last) ? monthName(d) : '',
+    column_width: 42,
+    lower_text: (d: Date) => String(d.getDate()),
+    upper_text: (d: Date, last?: Date) => sprintWeekHeader(d, last, sprintStart),
   },
   {
     name: 'Month',
@@ -82,7 +72,10 @@ const VIEW_MODES = [
       return !last || decade(d) !== decade(last) ? decade(d) : ''
     },
   },
-]
+  ]
+  const selected = modes.find(mode => mode.name === current)
+  return selected ? [selected, ...modes.filter(mode => mode.name !== current)] : modes
+}
 
 function rangeAnchor(from: string, to: string): GanttTask {
   return {
@@ -157,7 +150,8 @@ export function GanttChart({ tasks, colors = STATUS_COLORS }: Props) {
       if (cancelled || !containerRef.current) return
 
       const ends = tasks.map(t => t.end).filter(Boolean).sort()
-      const from = chartMonthStart(chartFrom) || chartFrom || new Date().toISOString().slice(0, 7) + '-01'
+      const from = (viewMode === 'Week' ? chartFrom : chartMonthStart(chartFrom) || chartFrom)
+        || new Date().toISOString().slice(0, 7) + '-01'
       const to = [chartTo, ends[ends.length - 1]].filter(Boolean).sort().at(-1) || from
       const visible = tasks.length > 0 ? tasks : [rangeAnchor(from, to)]
       const byExternal = new Map(visible.map(t => [t.externalId, t.id]))
@@ -189,7 +183,7 @@ export function GanttChart({ tasks, colors = STATUS_COLORS }: Props) {
       try {
         new Gantt(host, frappeTasks, {
           view_mode: viewMode,
-          view_modes: VIEW_MODES,
+          view_modes: viewModes(chartFrom, viewMode),
           scroll_to: from,
           today_button: false,
           infinite_padding: false,
@@ -286,21 +280,22 @@ export function GanttChart({ tasks, colors = STATUS_COLORS }: Props) {
   return (
     <div className="flex h-full min-h-[400px] flex-col">
       <p className="border-b border-line bg-panel px-4 py-1.5 text-xs text-soft">
-        Each row is one task: name on the left, timeline on the right.
+        {tasks.length} {tasks.length === 1 ? 'task' : 'tasks'}. Week view uses one column per day, grouped from the sprint start.
       </p>
       <div className="flex min-h-0 flex-1">
         <aside ref={nameColRef} className="w-80 shrink-0 border-r border-line bg-panel">
           <div
             data-name-header
-            className="flex items-end border-b border-line px-3 pb-2 text-xs font-semibold uppercase tracking-wide text-soft"
+            className="flex items-end justify-between border-b border-line px-3 pb-2 text-xs font-semibold uppercase tracking-wide text-soft"
             style={{ height: HEADER_HEIGHT }}
           >
-            Task
+            <span>Task</span>
+            <span className="tabular-nums text-ink">{tasks.length}</span>
           </div>
           {tasks.length === 0 ? (
             <p className="px-3 py-3 text-xs text-soft">No tasks yet</p>
           ) : (
-            tasks.map(task => {
+            tasks.map((task, index) => {
               const overdue = isOverdueTask(task)
               return (
                 <button
@@ -309,7 +304,7 @@ export function GanttChart({ tasks, colors = STATUS_COLORS }: Props) {
                   type="button"
                   onClick={() => selectTask(task)}
                   className={cn(
-                    'flex w-full flex-col justify-center border-b px-3 text-left',
+                    'flex w-full items-center gap-2 border-b px-3 text-left',
                     overdue
                       ? 'border-orange-300 bg-orange-50 hover:bg-orange-100 dark:border-orange-500/40 dark:bg-orange-500/15 dark:hover:bg-orange-500/25'
                       : 'border-line hover:bg-hover',
@@ -317,14 +312,19 @@ export function GanttChart({ tasks, colors = STATUS_COLORS }: Props) {
                   style={{ height: ROW_HEIGHT }}
                   title={task.name}
                 >
-                  <span className={cn('truncate text-sm font-semibold', overdue ? 'text-orange-800 dark:text-orange-200' : 'text-ink')}>
-                    {task.name}
+                  <span className={cn('w-5 shrink-0 text-xs font-bold tabular-nums', overdue ? 'text-orange-700 dark:text-orange-300' : 'text-soft')}>
+                    {index + 1}
                   </span>
-                  {task.externalId && !task.externalId.startsWith('local-') && (
-                    <span className={cn('truncate text-[11px]', overdue ? 'text-orange-700 dark:text-orange-300/80' : 'text-soft')}>
-                      {task.externalId}
+                  <span className="min-w-0 flex-1">
+                    <span className={cn('block truncate text-sm font-semibold', overdue ? 'text-orange-800 dark:text-orange-200' : 'text-ink')}>
+                      {task.name}
                     </span>
-                  )}
+                    {task.externalId && !task.externalId.startsWith('local-') && (
+                      <span className={cn('block truncate text-[11px]', overdue ? 'text-orange-700 dark:text-orange-300/80' : 'text-soft')}>
+                        {task.externalId}
+                      </span>
+                    )}
+                  </span>
                 </button>
               )
             })
