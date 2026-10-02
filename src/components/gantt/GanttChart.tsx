@@ -18,6 +18,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useGanttStore } from '@/store/ganttStore'
 import {
   ALMOST_OVERDUE_COLOR,
+  PRIORITY_STYLES,
   STATUS_COLORS,
   isAlmostOverdue,
   isOverdueTask,
@@ -474,20 +475,38 @@ export function GanttChart({ tasks, colors = STATUS_COLORS }: Props) {
                     type="button"
                     onClick={() => selectTask(task)}
                     className={cn(
-                      'sticky left-0 z-10 flex shrink-0 items-center gap-2 border-r px-3 text-left',
+                      'sticky left-0 z-10 flex shrink-0 items-center gap-1.5 border-r px-2 text-left',
                       overdue
                         ? 'border-orange-200 bg-orange-50/80 hover:bg-orange-100/80 dark:border-orange-500/20 dark:bg-orange-500/10 dark:hover:bg-orange-500/20'
                         : 'border-line bg-panel group-hover:bg-hover/40',
                     )}
                     style={{ width: SIDEBAR_W }}
-                    title={`${task.name} · ${shortLabel(task.start)} → ${shortLabel(task.end)}`}
+                    title={`${task.name} · ${task.priority ?? 'No priority'} · ${shortLabel(task.start)} → ${shortLabel(task.end)}`}
                   >
+                    {/* row number */}
                     <span className={cn(
-                      'w-5 shrink-0 text-xs font-bold tabular-nums',
+                      'w-4 shrink-0 text-[10px] font-bold tabular-nums',
                       overdue ? 'text-orange-600 dark:text-orange-400' : 'text-soft',
                     )}>
                       {idx + 1}
                     </span>
+
+                    {/* priority badge */}
+                    {task.priority && PRIORITY_STYLES[task.priority] ? (
+                      <span
+                        className="shrink-0 rounded px-1 py-px text-[9px] font-bold uppercase tracking-wide"
+                        style={{
+                          color: PRIORITY_STYLES[task.priority].color,
+                          background: PRIORITY_STYLES[task.priority].bg,
+                        }}
+                      >
+                        {PRIORITY_STYLES[task.priority].label[0]}
+                      </span>
+                    ) : (
+                      <span className="w-[18px] shrink-0" />
+                    )}
+
+                    {/* name + subtext */}
                     <span className="min-w-0 flex-1">
                       <span className={cn(
                         'block truncate text-xs font-semibold leading-[1.3]',
@@ -504,6 +523,7 @@ export function GanttChart({ tasks, colors = STATUS_COLORS }: Props) {
                           : `${shortLabel(task.start)} → ${shortLabel(task.end)}`}
                       </span>
                     </span>
+
                     {/* status dot */}
                     <span
                       className="h-2 w-2 shrink-0 rounded-full"

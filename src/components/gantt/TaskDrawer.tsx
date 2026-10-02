@@ -334,7 +334,7 @@ export function TaskDrawer({ colors = STATUS_COLORS }: { colors?: Record<TaskSta
           {selectedTask.description && (
             <section className="border-b border-line px-4 py-3">
               <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-soft">Description</p>
-              <p className="whitespace-pre-wrap text-xs leading-relaxed text-muted">{selectedTask.description}</p>
+              <p className="whitespace-pre-wrap text-xs leading-relaxed text-muted">{stripHtml(selectedTask.description)}</p>
             </section>
           )}
 
@@ -371,18 +371,35 @@ export function TaskDrawer({ colors = STATUS_COLORS }: { colors?: Record<TaskSta
                 type="button"
                 onClick={() => refetchComments()}
                 disabled={loadingComments}
-                className="text-[10px] text-soft hover:text-ink disabled:opacity-40"
+                className="flex items-center gap-1 text-[10px] text-soft hover:text-ink disabled:opacity-40"
               >
-                {loadingComments ? 'Loading…' : 'Refresh'}
+                <RefreshCw className={cn('h-3 w-3', loadingComments && 'animate-spin')} />
+                {loadingComments ? 'Fetching…' : 'Refresh'}
               </button>
             </div>
 
-            {/* comment list */}
+            {/* loading skeleton */}
+            {loadingComments && comments.length === 0 && (
+              <div className="space-y-3">
+                {[1, 2].map(i => (
+                  <div key={i} className="flex gap-2 animate-pulse">
+                    <div className="h-6 w-6 shrink-0 rounded-full bg-hover" />
+                    <div className="flex-1 space-y-1.5">
+                      <div className="h-2.5 w-24 rounded bg-hover" />
+                      <div className="h-2 w-full rounded bg-hover" />
+                      <div className="h-2 w-3/4 rounded bg-hover" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* comment list — newest first */}
+            {!loadingComments && comments.length === 0 && (
+              <p className="text-[11px] text-soft">No comments yet.</p>
+            )}
             <div className="space-y-3">
-              {comments.length === 0 && !loadingComments && (
-                <p className="text-[11px] text-soft">No comments yet.</p>
-              )}
-              {comments.map(c => (
+              {[...comments].reverse().map(c => (
                 <div key={c.name} className="flex gap-2">
                   <Avatar name={c.comment_by || c.owner} />
                   <div className="min-w-0 flex-1">

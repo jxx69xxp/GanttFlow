@@ -122,7 +122,7 @@ export function GanttView() {
     if (filters.search && !t.name.toLowerCase().includes(filters.search.toLowerCase())) return false
     if (filters.status === ALMOST_OVERDUE_LABEL && !isAlmostOverdue(t)) return false
     return true
-  })
+  }).sort((a: GanttTask, b: GanttTask) => priorityRank(a.priority) - priorityRank(b.priority))
 
   const showSetup = creating || (sprints.length === 0 && !sprintsLoading)
 
