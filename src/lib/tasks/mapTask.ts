@@ -2,19 +2,13 @@ import type { GanttTask, TaskStatus } from '../types'
 import { unpackTaskMeta } from './meta'
 
 function toYmd(value: Date | string | null | undefined): string {
-  if (!value) {
-    const now = new Date()
-    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
-  }
+  if (!value) return ''
   if (typeof value === 'string') {
     const iso = value.match(/^(\d{4}-\d{2}-\d{2})/)
     if (iso) return iso[1]
   }
   const d = typeof value === 'string' ? new Date(value) : value
-  if (Number.isNaN(d.getTime())) {
-    const now = new Date()
-    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
-  }
+  if (Number.isNaN(d.getTime())) return ''
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
@@ -32,9 +26,16 @@ export function toGanttTask(task: {
   description?: string | null
   source: string
   externalId: string
+  sprintStartDate?: string | null
+  sprintEndDate?: string | null
 }): GanttTask {
-  const start = toYmd(task.startDate)
-  const end = toYmd(task.endDate ?? task.startDate)
+  const rawStart = toYmd(task.startDate)
+  const rawEnd = toYmd(task.endDate ?? task.startDate)
+  // Fall back to sprint bounds for undated tasks so they render as a visible bar
+  const sprintStart = toYmd(task.sprintStartDate) || rawStart
+  const sprintEnd = toYmd(task.sprintEndDate) || rawEnd || sprintStart
+  const start = rawStart || sprintStart
+  const end = rawEnd || sprintEnd || start
   const status = (task.status as TaskStatus) || 'Not Started'
   const completed = status === 'Completed'
   const { description, meta } = unpackTaskMeta(task.description)

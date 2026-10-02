@@ -1,6 +1,6 @@
 'use client'
 import { useState } from 'react'
-import { Search, X, CalendarRange, Columns3, Flag, FileSpreadsheet } from 'lucide-react'
+import { Search, X, FileSpreadsheet, RefreshCw } from 'lucide-react'
 import { useGanttStore } from '@/store/ganttStore'
 import { cn, formatDate } from '@/lib/utils'
 import {
@@ -34,21 +34,26 @@ interface Props {
   onSelectSprint: (sprint: SprintOption) => void
   onCreatedSprint: (sprint: SprintOption) => void
   tasks?: GanttTask[]
+  onManualSync?: () => void
+  isSyncing?: boolean
 }
 
 export function GanttToolbar({
   sprints, selectedSprintId, assignees, colors, onSelectSprint, onCreatedSprint, tasks = [],
+  onManualSync, isSyncing = false,
 }: Props) {
   const qc = useQueryClient()
   const [exporting, setExporting] = useState(false)
-  const { viewMode, filters, chartFrom, chartTo, chartId, chartReady, setViewMode, setFilter, resetFilters, generateChart, extendChart } = useGanttStore()
+  const {
+    viewMode, filters, chartFrom, chartTo, chartId, chartReady,
+    setViewMode, setFilter, resetFilters, generateChart, extendChart,
+  } = useGanttStore()
+
   const selectedSprint = sprints.find(s =>
-    s.externalId === selectedSprintId
-    || s.id === selectedSprintId
-    || s.chartId === selectedSprintId
-    || s.name === selectedSprintId
-  ) || sprints.find(s => s.name === filters.sprint)
-  const hasExtraFilters = Boolean(filters.assignee || filters.status || filters.search)
+    s.externalId === selectedSprintId || s.id === selectedSprintId
+  ) ?? sprints.find(s => s.name === filters.sprint)
+
+  const activeFilters = [filters.assignee, filters.status, filters.search].filter(Boolean).length
 
   async function persist(partial: { startDate?: string; endDate?: string; viewMode?: ViewMode }) {
     if (!chartId) return
@@ -62,54 +67,38 @@ export function GanttToolbar({
   }
 
   return (
-    <div className="space-y-1.5 border-b border-line bg-panel px-3 py-2">
-      <div className="flex items-start gap-2 flex-wrap">
-        <div className="flex flex-col gap-1">
-          <div className="flex items-center gap-1">
-            <select
-              value={selectedSprint?.externalId || selectedSprint?.id || ''}
-              onChange={e => {
-                const next = sprints.find(s => s.externalId === e.target.value || s.id === e.target.value)
-                if (next) onSelectSprint(next)
-              }}
-              className="h-9 min-w-[260px] rounded-md border border-blue-500 bg-input px-2 text-sm font-semibold text-ink focus:outline-none focus:ring-1 focus:ring-blue-500"
-            >
-              {sprints.length === 0 && <option value="">No sprints yet</option>}
-              {sprints.map(s => (
-                <option key={s.externalId || s.id} value={s.externalId || s.id}>
-                  {s.name} ({s.externalId || s.id})
-                </option>
-              ))}
-            </select>
-            <CreateSprintDialog variant="icon" onCreated={onCreatedSprint} />
-          </div>
-          {selectedSprint && (
-            <p className="flex items-center gap-1.5 text-xs text-muted">
-              <Flag className="h-3 w-3 text-blue-600" />
-              <span className="font-medium text-ink">Sprint kickoff</span>
-              <span>{selectedSprint.name}</span>
-              <span className="font-mono text-soft">{selectedSprint.externalId || selectedSprint.id}</span>
-              <span className="text-soft">
-                {formatDate(selectedSprint.startDate)} → {formatDate(selectedSprint.endDate)}
-              </span>
-            </p>
-          )}
+    <div className="border-b border-line bg-panel">
+      {/* ── Row 1: sprint + view + actions ─────────────────────────────────── */}
+      <div className="flex flex-wrap items-center gap-2 px-3 py-2">
+        {/* Sprint select */}
+        <div className="flex items-center gap-1">
+          <select
+            value={selectedSprint?.externalId || selectedSprint?.id || ''}
+            onChange={e => {
+              const next = sprints.find(s => s.externalId === e.target.value || s.id === e.target.value)
+              if (next) onSelectSprint(next)
+            }}
+            className="h-8 min-w-[220px] max-w-xs rounded-md border border-blue-500/60 bg-input px-2 text-sm font-semibold text-ink focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          >
+            {sprints.length === 0 && <option value="">No sprints</option>}
+            {sprints.map(s => (
+              <option key={s.externalId || s.id} value={s.externalId || s.id}>{s.name}</option>
+            ))}
+          </select>
+          <CreateSprintDialog variant="icon" onCreated={onCreatedSprint} />
         </div>
 
-        <span className="mt-1 flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-soft">
-          <Columns3 className="h-3.5 w-3.5" />
-          Columns
-        </span>
-        <div className="mt-0.5 flex rounded-lg border border-line bg-input p-1">
+        {/* Divider */}
+        <div className="h-5 w-px bg-line" />
+
+        {/* View mode pills */}
+        <div className="flex rounded-md border border-line bg-input p-0.5">
           {VIEWS.map(v => (
             <button
               key={v}
-              onClick={() => {
-                setViewMode(v)
-                persist({ viewMode: v })
-              }}
+              onClick={() => { setViewMode(v); persist({ viewMode: v }) }}
               className={cn(
-                'rounded-md px-3 py-1 text-xs font-semibold transition-colors',
+                'rounded px-2.5 py-1 text-[11px] font-semibold transition-colors',
                 viewMode === v ? 'bg-blue-600 text-white' : 'text-muted hover:text-ink'
               )}
             >
@@ -118,27 +107,85 @@ export function GanttToolbar({
           ))}
         </div>
 
+        {/* Divider */}
+        <div className="h-5 w-px bg-line" />
+
+        {/* Date range */}
+        <div className="flex items-center gap-1.5">
+          <input
+            type="date"
+            value={filters.from}
+            onChange={e => setFilter('from', e.target.value)}
+            className="h-8 rounded-md border border-line bg-input px-2 text-xs text-ink focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          />
+          <span className="text-xs text-soft">→</span>
+          <input
+            type="date"
+            value={filters.to}
+            onChange={e => setFilter('to', e.target.value)}
+            className="h-8 rounded-md border border-line bg-input px-2 text-xs text-ink focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          />
+          {filters.from && filters.to && chartId && (
+            <button
+              onClick={() => { generateChart(filters.from, filters.to); persist({ startDate: filters.from, endDate: filters.to }) }}
+              className="h-8 rounded-md bg-blue-600 px-2.5 text-xs font-semibold text-white hover:bg-blue-500"
+            >
+              Apply
+            </button>
+          )}
+          {chartReady && (
+            <button
+              onClick={() => { extendChart(); const n = useGanttStore.getState(); persist({ endDate: n.chartTo }) }}
+              className="h-8 rounded-md border border-line bg-input px-2.5 text-xs font-semibold text-ink hover:bg-hover"
+            >
+              +1 week
+            </button>
+          )}
+        </div>
+
+        {/* push right */}
+        <div className="flex-1" />
+
+        {/* Search */}
+        <div className="relative">
+          <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-soft" />
+          <input
+            type="text"
+            placeholder="Search…"
+            value={filters.search}
+            onChange={e => setFilter('search', e.target.value)}
+            className="h-8 w-36 rounded-md border border-line bg-input pl-7 pr-2.5 text-xs text-ink placeholder:text-soft focus:outline-none focus:ring-1 focus:ring-blue-500"
+          />
+          {filters.search && (
+            <button onClick={() => setFilter('search', '')} className="absolute right-1.5 top-1/2 -translate-y-1/2 text-soft hover:text-ink">
+              <X className="h-3 w-3" />
+            </button>
+          )}
+        </div>
+
+        {/* Sync */}
+        <button
+          type="button"
+          onClick={onManualSync}
+          disabled={isSyncing}
+          title="Sync from ERP"
+          className="flex h-8 items-center gap-1.5 rounded-md border border-line bg-input px-2.5 text-xs font-semibold text-ink hover:bg-hover disabled:opacity-50"
+        >
+          <RefreshCw className={cn('h-3.5 w-3.5', isSyncing && 'animate-spin')} />
+          {isSyncing ? 'Syncing…' : 'Sync'}
+        </button>
+
+        {/* Add task */}
         <CreateTaskDialog
           sprintId={selectedSprint?.externalId || selectedSprint?.id}
           sprintName={selectedSprint?.name}
-          label="Add row"
+          label="+ Add task"
           defaultStart={chartFrom || filters.from || selectedSprint?.startDate}
           defaultEnd={chartTo || filters.to || selectedSprint?.endDate}
           chartId={chartId || selectedSprint?.chartId || ''}
         />
-        {chartReady && (
-          <button
-            type="button"
-            onClick={() => {
-              extendChart()
-              const next = useGanttStore.getState()
-              persist({ endDate: next.chartTo })
-            }}
-            className="mt-0.5 rounded-md border border-line bg-input px-3 py-1 text-xs font-semibold text-ink hover:bg-hover"
-          >
-            Extend columns
-          </button>
-        )}
+
+        {/* Export */}
         <button
           type="button"
           disabled={exporting || tasks.length === 0}
@@ -153,90 +200,70 @@ export function GanttToolbar({
                 endDate: selectedSprint?.endDate,
                 tasks,
               })
-            } finally {
-              setExporting(false)
-            }
+            } finally { setExporting(false) }
           }}
-          className="mt-0.5 flex items-center gap-1.5 rounded-md border border-line bg-input px-3 py-1 text-xs font-semibold text-ink hover:bg-hover disabled:opacity-50"
+          className="flex h-8 items-center gap-1.5 rounded-md border border-line bg-input px-2.5 text-xs font-semibold text-ink hover:bg-hover disabled:opacity-40"
         >
           <FileSpreadsheet className="h-3.5 w-3.5 text-emerald-600" />
-          {exporting ? 'Exporting…' : 'Export Excel'}
+          {exporting ? 'Exporting…' : 'Excel'}
         </button>
+      </div>
 
-        <div className="relative mt-0.5">
-          <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-soft" />
-          <input
-            type="text"
-            placeholder="Search tasks…"
-            value={filters.search}
-            onChange={e => setFilter('search', e.target.value)}
-            className="h-8 w-44 rounded-md border border-line bg-input pl-8 pr-3 text-xs text-ink placeholder:text-soft focus:outline-none focus:ring-1 focus:ring-blue-500"
-          />
+      {/* ── Row 2: filters + legend ─────────────────────────────────────────── */}
+      <div className="flex flex-wrap items-center gap-2 border-t border-line/60 px-3 py-1.5">
+        {/* Assignee filter */}
+        {assignees.length > 0 && (
+          <select
+            value={filters.assignee}
+            onChange={e => setFilter('assignee', e.target.value)}
+            className="h-6 rounded border border-line bg-input px-1.5 text-[11px] text-ink focus:outline-none focus:ring-1 focus:ring-blue-500"
+          >
+            <option value="">All assignees</option>
+            {assignees.map(a => <option key={a} value={a}>{a.split('@')[0]}</option>)}
+          </select>
+        )}
+
+        {/* Status filter — chips */}
+        <div className="flex items-center gap-1">
+          {[...TASK_STATUSES, ALMOST_OVERDUE_LABEL as TaskStatus | string].map(s => {
+            const c = s === ALMOST_OVERDUE_LABEL ? ALMOST_OVERDUE_COLOR : colors[s as TaskStatus]
+            const active = filters.status === s
+            return (
+              <button
+                key={s}
+                onClick={() => setFilter('status', active ? '' : s)}
+                className={cn(
+                  'flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium transition-colors',
+                  active
+                    ? 'text-white'
+                    : 'bg-hover text-muted hover:text-ink',
+                )}
+                style={active ? { background: c } : {}}
+              >
+                <span className="h-1.5 w-1.5 rounded-full shrink-0" style={{ background: c }} />
+                {s}
+              </button>
+            )
+          })}
         </div>
 
-        <select
-          value={filters.assignee}
-          onChange={e => setFilter('assignee', e.target.value)}
-          className="mt-0.5 h-8 rounded-md border border-line bg-input px-2 text-xs text-ink focus:outline-none focus:ring-1 focus:ring-blue-500"
-        >
-          <option value="">All Assignees</option>
-          {assignees.map(a => <option key={a} value={a}>{a}</option>)}
-        </select>
-
-        <select
-          value={filters.status}
-          onChange={e => setFilter('status', e.target.value)}
-          className="mt-0.5 h-8 rounded-md border border-line bg-input px-2 text-xs text-ink focus:outline-none focus:ring-1 focus:ring-blue-500"
-        >
-          <option value="">All Statuses</option>
-          {TASK_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
-          <option value={ALMOST_OVERDUE_LABEL}>{ALMOST_OVERDUE_LABEL}</option>
-        </select>
-
-        {hasExtraFilters && (
-          <button onClick={resetFilters} className="mt-1 flex items-center gap-1 text-xs text-red-600 hover:text-red-500 dark:text-red-400 dark:hover:text-red-300">
-            <X className="h-3 w-3" /> Clear
-          </button>
-        )}
-      </div>
-
-      <div className="flex flex-wrap items-center gap-2">
-        <label className="flex items-center gap-1.5 text-xs text-muted">
-          <CalendarRange className="h-3.5 w-3.5" />
-          From
-          <input type="date" value={filters.from} onChange={e => setFilter('from', e.target.value)}
-            className="h-7 rounded-md border border-line bg-input px-2 text-xs text-ink focus:outline-none focus:ring-1 focus:ring-blue-500" />
-        </label>
-        <label className="flex items-center gap-1.5 text-xs text-muted">
-          To
-          <input type="date" value={filters.to} onChange={e => setFilter('to', e.target.value)}
-            className="h-7 rounded-md border border-line bg-input px-2 text-xs text-ink focus:outline-none focus:ring-1 focus:ring-blue-500" />
-        </label>
-        {filters.from && filters.to && chartId && (
+        {/* clear filters */}
+        {activeFilters > 0 && (
           <button
-            type="button"
-            onClick={() => {
-              generateChart(filters.from, filters.to)
-              persist({ startDate: filters.from, endDate: filters.to })
-            }}
-            className="h-7 rounded-md bg-blue-600 px-3 text-xs font-semibold text-white hover:bg-blue-500"
+            onClick={resetFilters}
+            className="flex items-center gap-1 text-[11px] text-red-500 hover:text-red-400"
           >
-            Update dates
+            <X className="h-3 w-3" />
+            Clear {activeFilters} filter{activeFilters > 1 ? 's' : ''}
           </button>
         )}
-      </div>
 
-      <div className="flex flex-wrap items-center gap-3 px-1">
-        {TASK_STATUSES.map(status => (
-          <span key={status} className="flex items-center gap-1.5 text-xs text-muted">
-            <span className="h-2 w-2 rounded-full" style={{ background: colors[status] }} />
-            {status}
+        {/* sprint dates (right side) */}
+        {selectedSprint?.startDate && (
+          <span className="ml-auto text-[11px] text-soft">
+            {formatDate(selectedSprint.startDate)} – {formatDate(selectedSprint.endDate)}
           </span>
-        ))}
-        <span className="flex items-center gap-1.5 text-xs text-muted">
-          <span className="h-2 w-2 rounded-full" style={{ background: ALMOST_OVERDUE_COLOR }} />
-          {ALMOST_OVERDUE_LABEL}
-        </span>
+        )}
       </div>
     </div>
   )

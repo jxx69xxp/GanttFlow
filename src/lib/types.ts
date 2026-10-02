@@ -88,6 +88,27 @@ export const TASK_STATUSES: TaskStatus[] = [
   'Not Started', 'In Progress', 'Completed', 'Overdue', 'Blocked',
 ]
 
+// Priority order — lower index = higher priority
+export const PRIORITY_ORDER: Record<string, number> = {
+  'Urgent': 0,
+  'High':   1,
+  'Medium': 2,
+  'Low':    3,
+}
+
+// Visual styles per priority
+export const PRIORITY_STYLES: Record<string, { label: string; color: string; bg: string }> = {
+  'Urgent': { label: 'Urgent', color: '#ef4444', bg: '#fef2f2' },
+  'High':   { label: 'High',   color: '#f97316', bg: '#fff7ed' },
+  'Medium': { label: 'Medium', color: '#eab308', bg: '#fefce8' },
+  'Low':    { label: 'Low',    color: '#94a3b8', bg: '#f8fafc' },
+}
+
+export function priorityRank(priority?: string | null): number {
+  if (!priority) return 99
+  return PRIORITY_ORDER[priority] ?? 50
+}
+
 /** How often the open sprint re-imports from ERP while the Gantt is visible. */
 export const LIVE_SYNC_MS = 8_000
 
@@ -117,10 +138,13 @@ export function isAlmostOverdue(task: { end?: string; status?: string }) {
 }
 
 export function barStatusLabel(task: {
+  name?: string
   status?: string
   erpStatus?: string | null
   devopsStatus?: string | null
 }) {
+  // Show task name as the primary bar label — status is visible via color
+  if (task.name) return task.name
   const parts = [task.erpStatus || task.status, task.devopsStatus]
     .map(value => value?.trim())
     .filter((value): value is string => Boolean(value))

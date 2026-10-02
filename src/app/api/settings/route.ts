@@ -12,6 +12,9 @@ export async function GET() {
     erpnextBaseUrl:        settings?.erpnextBaseUrl ?? '',
     erpnextApiKey:         maskSecret(settings?.erpnextApiKey),
     erpnextApiSecret:      maskSecret(settings?.erpnextApiSecret),
+    erpnextAuthMode:       settings?.erpnextAuthMode ?? 'api',
+    erpnextUsername:       settings?.erpnextUsername ?? '',
+    erpnextPassword:       maskSecret(settings?.erpnextPassword),
     sprintKickoffUrl:      settings?.sprintKickoffUrl ?? '',
     sprintKickoffApiKey:   maskSecret(settings?.sprintKickoffApiKey),
     sprintKickoffApiSecret: maskSecret(settings?.sprintKickoffApiSecret),
@@ -31,6 +34,11 @@ export async function PUT(req: NextRequest) {
   }
   if (body.erpnextApiSecret !== undefined && !isMaskedSecret(body.erpnextApiSecret)) {
     data.erpnextApiSecret = encrypt(body.erpnextApiSecret)
+  }
+  if (body.erpnextAuthMode !== undefined) data.erpnextAuthMode = body.erpnextAuthMode
+  if (body.erpnextUsername !== undefined) data.erpnextUsername = body.erpnextUsername
+  if (body.erpnextPassword !== undefined && !isMaskedSecret(body.erpnextPassword)) {
+    data.erpnextPassword = encrypt(body.erpnextPassword)
   }
   if (body.sprintKickoffUrl !== undefined) data.sprintKickoffUrl = String(body.sprintKickoffUrl).replace(/\/+$/, '')
   if (body.sprintKickoffApiKey !== undefined && !isMaskedSecret(body.sprintKickoffApiKey)) {

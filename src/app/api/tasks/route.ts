@@ -13,6 +13,7 @@ export async function GET(req: NextRequest) {
   const assignee = searchParams.get('assignee')
   const status   = searchParams.get('status')
   const chartId  = searchParams.get('chart')
+  const forceSync = searchParams.get('sync') === '1'
 
   const where: Record<string, unknown> = {}
   if (assignee) where.assigneeEmail = assignee
@@ -27,7 +28,7 @@ export async function GET(req: NextRequest) {
 
   if (sprintDocId) {
     try {
-      await importBacklogsForSprint(sprintDocId, chartId)
+      await importBacklogsForSprint(sprintDocId, chartId, { force: forceSync })
     } catch (e) {
       console.error('Sprint Backlogs import failed:', e)
     }
@@ -38,8 +39,19 @@ export async function GET(req: NextRequest) {
     prisma.syncLog.findFirst({ orderBy: { ranAt: 'desc' } }),
   ])
 
+  // Pass sprint bounds so undated tasks span the sprint instead of collapsing to a point
+  const sprintRecord = sprintDocId
+    ? await prisma.sprint.findFirst({ where: { externalId: sprintDocId } })
+    : null
+  const sprintStartDate = sprintRecord?.startDate instanceof Date
+    ? sprintRecord.startDate.toISOString().slice(0, 10)
+    : null
+  const sprintEndDate = sprintRecord?.endDate instanceof Date
+    ? sprintRecord.endDate.toISOString().slice(0, 10)
+    : null
+
   return NextResponse.json({
-    tasks: tasks.map(toGanttTask),
+    tasks: tasks.map(t => toGanttTask({ ...t, sprintStartDate, sprintEndDate })),
     sprints: sprintsFromBacklogs(tasks),
     lastSyncedAt: new Date().toISOString(),
     live: true,

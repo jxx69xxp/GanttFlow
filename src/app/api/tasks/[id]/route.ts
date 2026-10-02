@@ -14,7 +14,7 @@ export async function DELETE(_req: NextRequest, ctx: { params: Promise<{ id: str
 export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params
   const body = await req.json()
-  const { startDate, endDate, progress, status } = body
+  const { startDate, endDate, progress, status, sprintId } = body
 
   const nextStatus = status || undefined
   const nextProgress = nextStatus === 'Completed'
@@ -31,6 +31,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
       ...(nextProgress !== undefined && { progress: nextProgress }),
       ...(nextStatus && { status: nextStatus }),
       ...(nextStatus === 'Completed' && { isOverdue: false }),
+      ...(sprintId !== undefined && { sprintId: sprintId || null }),
     },
   })
 
@@ -41,6 +42,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     try {
       const client = new ErpNextClient({
         baseUrl: settings.erpnextBaseUrl,
+        authMode: 'api',
         apiKey: decrypt(settings.erpnextApiKey),
         apiSecret: decrypt(settings.erpnextApiSecret),
       })
@@ -49,6 +51,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
         ...(endDate   && { exp_end_date:   endDate   }),
         ...(nextProgress !== undefined && { progress: nextProgress }),
         ...(nextStatus && { status: nextStatus }),
+        ...(sprintId !== undefined && { sprint_assign: sprintId || '' }),
       })
       erpnextSync = true
     } catch (e) {

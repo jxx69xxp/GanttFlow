@@ -5,20 +5,32 @@ export function getErpNextClient(settings?: {
   erpnextBaseUrl?: string | null
   erpnextApiKey?: string | null
   erpnextApiSecret?: string | null
+  erpnextAuthMode?: string | null
+  erpnextUsername?: string | null
+  erpnextPassword?: string | null
 } | null) {
+  const baseUrl = settings?.erpnextBaseUrl || ERPNEXT_SPRINT_URL
+  if (settings?.erpnextAuthMode === 'login') {
+    if (!settings?.erpnextUsername || !settings?.erpnextPassword) return null
+    return new ErpNextClient({
+      baseUrl,
+      authMode: 'login',
+      username: decrypt(settings.erpnextUsername),
+      password: decrypt(settings.erpnextPassword),
+    })
+  }
   if (!settings?.erpnextApiKey || !settings?.erpnextApiSecret) return null
   return new ErpNextClient({
-    baseUrl: settings.erpnextBaseUrl || ERPNEXT_SPRINT_URL,
+    baseUrl,
+    authMode: 'api',
     apiKey: decrypt(settings.erpnextApiKey),
     apiSecret: decrypt(settings.erpnextApiSecret),
   })
 }
 
-export interface ErpNextConfig {
-  baseUrl: string
-  apiKey: string
-  apiSecret: string
-}
+export type ErpNextConfig =
+  | { baseUrl: string; authMode: 'api'; apiKey: string; apiSecret: string }
+  | { baseUrl: string; authMode: 'login'; username: string; password: string }
 
 export interface ErpTask {
   name: string
@@ -69,18 +81,43 @@ export interface ErpSprintBacklog {
 }
 
 const MFA_HINT =
-  'Use API Access keys (User → API Access → Generate Keys), not username/password. MFA blocks password login.'
+  'Use API Access keys (User → API Access → Generate Keys), or switch to username/password in Settings.'
 
 export class ErpNextClient {
+  private sessionCookie: string | null = null
+
   constructor(private config: ErpNextConfig) {}
 
   private get baseUrl() {
     return this.config.baseUrl.replace(/\/+$/, '')
   }
 
-  private get headers() {
+  private async getHeaders(): Promise<Record<string, string>> {
+    if (this.config.authMode === 'api') {
+      return {
+        Authorization: `token ${this.config.apiKey}:${this.config.apiSecret}`,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      }
+    }
+    // login mode — obtain session cookie once, then reuse for the lifetime of this client instance
+    if (!this.sessionCookie) {
+      const res = await fetch(`${this.baseUrl}/api/method/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ usr: this.config.username, pwd: this.config.password }),
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        throw new Error(`ERPNext login failed (${res.status}): ${body?.message ?? 'invalid credentials'}`)
+      }
+      const setCookie = res.headers.get('set-cookie') ?? ''
+      const sid = setCookie.split(';').find(p => p.trim().startsWith('sid='))?.trim()
+      if (!sid) throw new Error('ERPNext login succeeded but no session cookie returned')
+      this.sessionCookie = sid
+    }
     return {
-      Authorization: `token ${this.config.apiKey}:${this.config.apiSecret}`,
+      Cookie: this.sessionCookie,
       'Content-Type': 'application/json',
       Accept: 'application/json',
     }
@@ -108,6 +145,7 @@ export class ErpNextClient {
       ['name', 'like', '%CORE_ENHANCEMENT%'],
     ]
     const seen = new Map<string, MappedSprint>()
+    const headers = await this.getHeaders()
     for (const like of likes) {
       const query = new URLSearchParams({
         fields,
@@ -115,7 +153,7 @@ export class ErpNextClient {
         order_by: 'date_from desc',
         limit_page_length: '50',
       })
-      const res = await fetch(`${this.baseUrl}/api/resource/Sprint?${query}`, { headers: this.headers })
+      const res = await fetch(`${this.baseUrl}/api/resource/Sprint?${query}`, { headers })
       if (!res.ok) continue
       const data = await res.json()
       for (const sprint of (data.data ?? []).map(mapFrappeSprint)) {
@@ -128,7 +166,7 @@ export class ErpNextClient {
   async createSprint(input: { name: string; startDate: string; endDate: string }): Promise<MappedSprint> {
     const res = await fetch(`${this.baseUrl}/api/resource/Sprint`, {
       method: 'POST',
-      headers: this.headers,
+      headers: await this.getHeaders(),
       body: JSON.stringify(frappeSprintPayload(input)),
     })
     if (!res.ok) await this.readError(res, 'ERPNext Sprint create')
@@ -145,13 +183,14 @@ export class ErpNextClient {
 
   private async fetchSprintBacklogDoc(doctype: string, name: string): Promise<ErpSprintBacklog | null> {
     const doctypes = doctype ? [doctype, 'Sprint Backlogs', 'Sprint Backlog'] : ['Sprint Backlogs', 'Sprint Backlog']
+    const headers = await this.getHeaders()
     const seen = new Set<string>()
     for (const type of doctypes) {
       if (seen.has(type)) continue
       seen.add(type)
       const res = await fetch(
         `${this.baseUrl}/api/resource/${encodeURIComponent(type)}/${encodeURIComponent(name)}`,
-        { headers: this.headers }
+        { headers }
       )
       if (res.status === 404) continue
       if (!res.ok) return null
@@ -234,6 +273,7 @@ export class ErpNextClient {
         ? [['sprint_assign', 'in', sprintIds]]
         : null
     const doctypes = ['Sprint Backlogs', 'Sprint Backlog']
+    const headers = await this.getHeaders()
     for (const doctype of doctypes) {
       let rows: ErpSprintBacklog[] | null = null
       let rejected: Response | null = null
@@ -245,7 +285,7 @@ export class ErpNextClient {
         if (sprintFilter) query.set('filters', JSON.stringify(sprintFilter))
         const res = await fetch(
           `${this.baseUrl}/api/resource/${encodeURIComponent(doctype)}?${query}`,
-          { headers: this.headers }
+          { headers }
         )
         if (res.status === 404) {
           rows = null
@@ -285,7 +325,7 @@ export class ErpNextClient {
         : [['custom_sprint', 'like', '%CORE_DEVELOPMENT%']]
     const res = await fetch(
       `${this.baseUrl}/api/resource/Task?fields=${encodeURIComponent(fields)}&filters=${encodeURIComponent(JSON.stringify(sprintFilter))}&limit_page_length=500`,
-      { headers: this.headers }
+      { headers: await this.getHeaders() }
     )
     if (!res.ok) await this.readError(res, 'ERPNext fetch')
     const data = await res.json()
@@ -297,23 +337,71 @@ export class ErpNextClient {
     exp_end_date: string
     progress: number
     status: string
+    sprint_assign: string
   }>) {
     const path = taskName.startsWith('SPB-')
       ? `Sprint Backlogs/${encodeURIComponent(taskName)}`
       : `Task/${encodeURIComponent(taskName)}`
     const res = await fetch(
       `${this.baseUrl}/api/resource/${path}`,
-      { method: 'PUT', headers: this.headers, body: JSON.stringify(updates) }
+      { method: 'PUT', headers: await this.getHeaders(), body: JSON.stringify(updates) }
     )
     if (!res.ok) await this.readError(res, 'ERPNext patch')
     return res.json()
   }
 
+  async fetchComments(doctype: string, docname: string): Promise<Array<{
+    name: string; owner: string; comment_by?: string; content: string; creation: string
+  }>> {
+    const params = new URLSearchParams({
+      fields: JSON.stringify(['name', 'owner', 'comment_by', 'content', 'creation']),
+      filters: JSON.stringify([
+        ['comment_type', '=', 'Comment'],
+        ['reference_doctype', '=', doctype],
+        ['reference_name', '=', docname],
+      ]),
+      order_by: 'creation asc',
+      limit_page_length: '50',
+    })
+    const res = await fetch(
+      `${this.baseUrl}/api/resource/Comment?${params}`,
+      { headers: await this.getHeaders() }
+    )
+    if (!res.ok) return []
+    const data = await res.json()
+    return data.data ?? []
+  }
+
+  async addComment(doctype: string, docname: string, content: string): Promise<{ ok: boolean; name?: string }> {
+    const res = await fetch(`${this.baseUrl}/api/resource/Comment`, {
+      method: 'POST',
+      headers: await this.getHeaders(),
+      body: JSON.stringify({
+        comment_type: 'Comment',
+        reference_doctype: doctype,
+        reference_name: docname,
+        content,
+      }),
+    })
+    if (!res.ok) return { ok: false }
+    const data = await res.json()
+    return { ok: true, name: (data.data ?? data)?.name }
+  }
+
+  async fetchModified(doctype: string, docname: string): Promise<string | null> {
+    const res = await fetch(
+      `${this.baseUrl}/api/resource/${encodeURIComponent(doctype)}/${encodeURIComponent(docname)}?fields=["modified"]`,
+      { headers: await this.getHeaders() }
+    )
+    if (!res.ok) return null
+    const data = await res.json()
+    return (data.data ?? data)?.modified ?? null
+  }
+
   async testConnection(): Promise<{ ok: boolean; user?: string; error?: string }> {
     try {
-      const res = await fetch(`${this.baseUrl}/api/method/frappe.auth.get_logged_user`, {
-        headers: this.headers,
-      })
+      const headers = await this.getHeaders()
+      const res = await fetch(`${this.baseUrl}/api/method/frappe.auth.get_logged_user`, { headers })
       const body = await res.json().catch(() => ({}))
       if (!res.ok) {
         return { ok: false, error: `ERPNext returned ${res.status}. ${MFA_HINT}` }

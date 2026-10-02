@@ -1,6 +1,6 @@
 'use client'
-import { useEffect } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useEffect, useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useGanttStore } from '@/store/ganttStore'
 import { GanttToolbar, type SprintOption } from './GanttToolbar'
@@ -9,19 +9,35 @@ import { GanttSetup } from './GanttSetup'
 import { TaskDrawer } from './TaskDrawer'
 import { SprintAnalytics } from './SprintAnalytics'
 import { formatDate } from '@/lib/utils'
-import { ALMOST_OVERDUE_LABEL, LIVE_SYNC_MS, STATUS_COLORS, isAlmostOverdue, type GanttBoard, type GanttTask, type TaskStatus } from '@/lib/types'
+import {
+  ALMOST_OVERDUE_LABEL,
+  STATUS_COLORS,
+  isAlmostOverdue,
+  priorityRank,
+  type GanttBoard,
+  type GanttTask,
+  type TaskStatus,
+} from '@/lib/types'
 
 export function GanttView() {
   const router = useRouter()
   const searchParams = useSearchParams()
+  const qc = useQueryClient()
   const { filters, selectSprint, chartId: storeChartId } = useGanttStore()
-  const sprintKey = searchParams.get('sprint') ?? ''
-  const chartId = searchParams.get('chart') ?? ''
-  const creating = searchParams.get('new') === '1'
 
+  const sprintKey = searchParams.get('sprint') ?? ''
+  const chartId   = searchParams.get('chart')  ?? ''
+  const creating  = searchParams.get('new')    === '1'
+
+  const [isSyncing, setIsSyncing] = useState(false)
+  const [lastSynced, setLastSynced] = useState<Date | null>(null)
+
+  // ── sprints ────────────────────────────────────────────────────────────────
   const { data: sprintsData, isLoading: sprintsLoading } = useQuery({
     queryKey: ['sprints'],
     queryFn: () => fetch('/api/sprints').then(r => r.json()),
+    staleTime: 60_000,           // sprints list doesn't change often
+    refetchOnWindowFocus: false,
   })
   const sprints: SprintOption[] = sprintsData?.sprints ?? []
 
@@ -30,8 +46,9 @@ export function GanttView() {
     || s.id === sprintKey
     || s.name === sprintKey
     || (chartId && s.chartId === chartId)
-  ) || sprints[0]
+  ) ?? sprints[0]
 
+  // keep URL in sync with active sprint
   useEffect(() => {
     if (creating || sprints.length === 0 || !activeSprint) return
     const key = activeSprint.externalId || activeSprint.id
@@ -39,6 +56,7 @@ export function GanttView() {
     router.replace(`/?sprint=${encodeURIComponent(key)}${activeSprint.chartId ? `&chart=${activeSprint.chartId}` : ''}`)
   }, [activeSprint?.chartId, activeSprint?.externalId, activeSprint?.id, chartId, creating, router, sprintKey, sprints.length])
 
+  // keep store in sync with active sprint
   useEffect(() => {
     if (!activeSprint) return
     if (filters.sprint === activeSprint.name && storeChartId === (activeSprint.chartId ?? '')) return
@@ -50,36 +68,65 @@ export function GanttView() {
     })
   }, [activeSprint?.chartId, activeSprint?.endDate, activeSprint?.name, activeSprint?.startDate, filters.sprint, selectSprint, storeChartId])
 
-  const params = new URLSearchParams()
+  // ── tasks — served from DB, no polling ────────────────────────────────────
   const sprintDocId = activeSprint?.externalId || activeSprint?.id || ''
-  if (sprintDocId) params.set('sprintId', sprintDocId)
-  if (activeSprint?.chartId) params.set('chart', activeSprint.chartId)
-  if (filters.assignee) params.set('assignee', filters.assignee)
-  if (filters.status && filters.status !== ALMOST_OVERDUE_LABEL) params.set('status', filters.status)
 
-  const { data, isLoading, isFetching, dataUpdatedAt } = useQuery({
-    queryKey: ['tasks', activeSprint?.externalId || activeSprint?.id, filters.assignee, filters.status],
-    queryFn: () => fetch(`/api/tasks?${params}`).then(r => r.json()),
-    enabled: Boolean(activeSprint) && !creating,
-    staleTime: 0,
-    refetchInterval: LIVE_SYNC_MS,
-    refetchIntervalInBackground: false,
-    refetchOnWindowFocus: true,
+  const buildParams = (forceSync = false) => {
+    const p = new URLSearchParams()
+    if (sprintDocId)           p.set('sprintId', sprintDocId)
+    if (activeSprint?.chartId) p.set('chart', activeSprint.chartId)
+    if (filters.assignee)      p.set('assignee', filters.assignee)
+    if (filters.status && filters.status !== ALMOST_OVERDUE_LABEL) p.set('status', filters.status)
+    if (forceSync)             p.set('sync', '1')
+    return p
+  }
+
+  const { data, isLoading, dataUpdatedAt } = useQuery({
+    queryKey: ['tasks', sprintDocId, filters.assignee, filters.status],
+    queryFn:  () => fetch(`/api/tasks?${buildParams()}`).then(r => r.json()),
+    enabled:  Boolean(activeSprint) && !creating,
+    // No automatic refetch — data comes from DB, only refresh on manual sync
+    staleTime:              Infinity,
+    refetchOnWindowFocus:   false,
+    refetchOnMount:         true,   // fetch once when the component mounts / sprint changes
+    refetchInterval:        false,
   })
 
   const { data: settings } = useQuery({
     queryKey: ['settings'],
-    queryFn: () => fetch('/api/settings').then(r => r.json()),
+    queryFn:  () => fetch('/api/settings').then(r => r.json()),
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
   })
 
+  // ── manual sync ────────────────────────────────────────────────────────────
+  async function handleManualSync() {
+    if (isSyncing || !sprintDocId) return
+    setIsSyncing(true)
+    try {
+      // Force-fetch from ERP and repopulate DB, then invalidate local cache
+      await fetch(`/api/tasks?${buildParams(true)}`)
+      qc.invalidateQueries({ queryKey: ['tasks'] })
+      setLastSynced(new Date())
+    } catch (e) {
+      console.error('Manual sync failed:', e)
+    } finally {
+      setIsSyncing(false)
+    }
+  }
+
+  // ── derived data ──────────────────────────────────────────────────────────
   const colors: Record<TaskStatus, string> = settings?.statusColors ?? STATUS_COLORS
+
   const tasks: GanttTask[] = (data?.tasks ?? []).filter((t: GanttTask) => {
     if (filters.search && !t.name.toLowerCase().includes(filters.search.toLowerCase())) return false
     if (filters.status === ALMOST_OVERDUE_LABEL && !isAlmostOverdue(t)) return false
     return true
   })
+
   const showSetup = creating || (sprints.length === 0 && !sprintsLoading)
 
+  // ── navigation helpers ────────────────────────────────────────────────────
   function goToSprint(sprint: SprintOption) {
     selectSprint({
       name: sprint.name,
@@ -93,17 +140,10 @@ export function GanttView() {
 
   function goToChart(chart: GanttBoard) {
     const match = sprints.find(s => s.chartId === chart.id || s.name === chart.name)
-    if (match) {
-      goToSprint(match)
-      return
-    }
+    if (match) { goToSprint(match); return }
     goToSprint({
-      id: chart.id,
-      name: chart.name,
-      externalId: chart.id,
-      startDate: chart.startDate,
-      endDate: chart.endDate,
-      chartId: chart.id,
+      id: chart.id, name: chart.name, externalId: chart.id,
+      startDate: chart.startDate, endDate: chart.endDate, chartId: chart.id,
     })
   }
 
@@ -117,6 +157,8 @@ export function GanttView() {
         onSelectSprint={goToSprint}
         onCreatedSprint={goToSprint}
         tasks={tasks}
+        onManualSync={handleManualSync}
+        isSyncing={isSyncing}
       />
 
       <div className="min-h-0 flex-1 overflow-hidden">
@@ -130,33 +172,34 @@ export function GanttView() {
             </div>
           </div>
         ) : (
-          <div className="flex h-full min-h-0 flex-col overflow-hidden">
+          <div className="flex h-full min-h-0 flex-col">
             <div className="shrink-0 border-b border-line bg-panel">
               <SprintAnalytics tasks={tasks} compact />
             </div>
-            <div className="min-h-0 flex-1 overflow-hidden">
+            <div className="min-h-0 flex-1">
               <GanttChart tasks={tasks} colors={colors} />
             </div>
           </div>
         )}
       </div>
 
-      <div className="flex gap-4 border-t border-line bg-panel px-4 py-2 text-xs text-soft">
+      {/* ── status bar ───────────────────────────────────────────────────── */}
+      <div className="flex items-center gap-4 border-t border-line bg-panel px-4 py-1.5 text-[11px] text-soft">
         {activeSprint && (
-          <span className="text-ink">
+          <span className="font-medium text-ink">
             {activeSprint.name}
             {(activeSprint.externalId || activeSprint.id) && (
-              <span className="ml-1 font-mono text-soft">{activeSprint.externalId || activeSprint.id}</span>
+              <span className="ml-1.5 font-mono text-soft">{activeSprint.externalId || activeSprint.id}</span>
             )}
           </span>
         )}
-        <span>{tasks.length} tasks</span>
-        <span>{sprints.length} sprints</span>
-        <span className="flex items-center gap-1.5">
-          <span className={isFetching ? 'h-1.5 w-1.5 animate-pulse rounded-full bg-blue-500' : 'h-1.5 w-1.5 rounded-full bg-emerald-500'} />
-          Live
-          {dataUpdatedAt ? <span className="text-soft">{formatDate(new Date(dataUpdatedAt).toISOString())}</span> : null}
-        </span>
+        <span>{tasks.length} task{tasks.length !== 1 ? 's' : ''}</span>
+        {lastSynced ? (
+          <span>Last synced {formatDate(lastSynced.toISOString())}</span>
+        ) : dataUpdatedAt ? (
+          <span>Loaded {formatDate(new Date(dataUpdatedAt).toISOString())}</span>
+        ) : null}
+        {/* no live polling indicator — sync is explicit */}
       </div>
 
       <TaskDrawer colors={colors} />

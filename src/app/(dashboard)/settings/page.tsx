@@ -2,7 +2,7 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
-  Save, Plus, Trash2, Eye, EyeOff, KeyRound, Flag, Users, Clock, Palette, Plug,
+  Save, Plus, Trash2, Eye, EyeOff, KeyRound, Users, Clock, Palette, Plug,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { STATUS_COLORS, TASK_STATUSES, type TaskStatus } from '@/lib/types'
@@ -76,8 +76,7 @@ export default function SettingsPage() {
     queryFn: () => fetch('/api/settings').then(r => r.json()),
   })
 
-  const [erp, setErp] = useState({ baseUrl: '', apiKey: '', apiSecret: '' })
-  const [sk, setSk] = useState({ url: '', apiKey: '', apiSecret: '' })
+  const [erp, setErp] = useState({ baseUrl: '', apiKey: '', apiSecret: '', authMode: 'api' as 'api' | 'login', username: '', password: '' })
   const [colors, setColors] = useState<Record<TaskStatus, string>>(STATUS_COLORS)
   const [newMember, setNewMember] = useState({ email: '', name: '', role: '' })
   const [toast, setToast] = useState('')
@@ -88,11 +87,9 @@ export default function SettingsPage() {
       baseUrl: data.erpnextBaseUrl || 'https://erp.livro.systems',
       apiKey: data.erpnextApiKey ?? '',
       apiSecret: data.erpnextApiSecret ?? '',
-    })
-    setSk({
-      url: data.sprintKickoffUrl ?? '',
-      apiKey: data.sprintKickoffApiKey ?? '',
-      apiSecret: data.sprintKickoffApiSecret ?? '',
+      authMode: (data.erpnextAuthMode as 'api' | 'login') || 'api',
+      username: data.erpnextUsername ?? '',
+      password: data.erpnextPassword ?? '',
     })
     setColors({ ...STATUS_COLORS, ...(data.statusColors ?? {}) })
   }, [data])
@@ -106,13 +103,18 @@ export default function SettingsPage() {
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['settings'] }); showToast('Settings saved') },
   })
 
-  const testConnection = (source: 'erpnext' | 'sprint_kickoff') =>
+  const testConnection = () =>
     fetch('/api/settings/test', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(source === 'erpnext'
-        ? { source, erpnextBaseUrl: erp.baseUrl, erpnextApiKey: erp.apiKey, erpnextApiSecret: erp.apiSecret }
-        : { source, sprintKickoffUrl: sk.url, sprintKickoffApiKey: sk.apiKey, sprintKickoffApiSecret: sk.apiSecret }),
+      body: JSON.stringify({
+        erpnextBaseUrl: erp.baseUrl,
+        erpnextAuthMode: erp.authMode,
+        erpnextApiKey: erp.apiKey,
+        erpnextApiSecret: erp.apiSecret,
+        erpnextUsername: erp.username,
+        erpnextPassword: erp.password,
+      }),
     }).then(async r => {
       const json = await r.json()
       if (!r.ok || !json.ok) throw new Error(json.error ?? 'Connection failed')
@@ -120,13 +122,7 @@ export default function SettingsPage() {
     })
 
   const testErpMutation = useMutation({
-    mutationFn: () => testConnection('erpnext'),
-    onSuccess: (res) => showToast(res.user ? `Connected as ${res.user}` : 'API access works'),
-    onError: (err: Error) => showToast(err.message),
-  })
-
-  const testSkMutation = useMutation({
-    mutationFn: () => testConnection('sprint_kickoff'),
+    mutationFn: testConnection,
     onSuccess: (res) => showToast(res.user ? `Connected as ${res.user}` : 'API access works'),
     onError: (err: Error) => showToast(err.message),
   })
@@ -151,20 +147,63 @@ export default function SettingsPage() {
     <div className="mx-auto max-w-2xl space-y-6 p-6">
       <h1 className="text-xl font-bold text-ink">Settings</h1>
 
-      <Section title="ERPNext API Access" icon={KeyRound}>
+      <Section title="ERPNext Access" icon={KeyRound}>
         <div className="space-y-3">
-          <p className="rounded-lg border border-line bg-panel/60 px-3 py-2 text-xs leading-5 text-muted">
-            Use API Key and API Secret from User → API Access → Generate Keys. Username and password will fail when MFA is on.
-          </p>
+          {/* Auth mode toggle */}
+          <div className="flex gap-1 rounded-lg border border-line bg-hover/40 p-1">
+            {(['api', 'login'] as const).map(mode => (
+              <button
+                key={mode}
+                type="button"
+                onClick={() => setErp(s => ({ ...s, authMode: mode }))}
+                className={cn(
+                  'flex-1 rounded-md px-3 py-1.5 text-xs font-semibold transition-colors',
+                  erp.authMode === mode
+                    ? 'bg-panel text-ink shadow-sm'
+                    : 'text-muted hover:text-ink'
+                )}
+              >
+                {mode === 'api' ? 'API Key / Secret' : 'Username / Password'}
+              </button>
+            ))}
+          </div>
+
           <Field label="Base URL">
             <Input placeholder="https://erp.livro.systems"
               value={erp.baseUrl} onChange={e => setErp(s => ({ ...s, baseUrl: e.target.value }))} />
           </Field>
-          <SecretInput label="API Key" name="erpApiKey" value={erp.apiKey} onChange={v => setErp(s => ({ ...s, apiKey: v }))} />
-          <SecretInput label="API Secret" name="erpApiSecret" value={erp.apiSecret} onChange={v => setErp(s => ({ ...s, apiSecret: v }))} />
+
+          {erp.authMode === 'api' ? (
+            <>
+              <p className="rounded-lg border border-line bg-panel/60 px-3 py-2 text-xs leading-5 text-muted">
+                Generate keys in ERPNext: User → API Access → Generate Keys. Use these when MFA is on.
+              </p>
+              <SecretInput label="API Key" name="erpApiKey" value={erp.apiKey} onChange={v => setErp(s => ({ ...s, apiKey: v }))} />
+              <SecretInput label="API Secret" name="erpApiSecret" value={erp.apiSecret} onChange={v => setErp(s => ({ ...s, apiSecret: v }))} />
+            </>
+          ) : (
+            <>
+              <p className="rounded-lg border border-line bg-panel/60 px-3 py-2 text-xs leading-5 text-muted">
+                Uses your ERPNext login credentials. Will not work if MFA is enabled on your account.
+              </p>
+              <Field label="Username / Email">
+                <Input placeholder="admin@erp.livro.systems"
+                  value={erp.username} onChange={e => setErp(s => ({ ...s, username: e.target.value }))} />
+              </Field>
+              <SecretInput label="Password" name="erpPassword" value={erp.password} onChange={v => setErp(s => ({ ...s, password: v }))} />
+            </>
+          )}
+
           <div className="flex gap-2 pt-1">
             <button
-              onClick={() => saveMutation.mutate({ erpnextBaseUrl: erp.baseUrl, erpnextApiKey: erp.apiKey, erpnextApiSecret: erp.apiSecret })}
+              onClick={() => saveMutation.mutate({
+                erpnextBaseUrl: erp.baseUrl,
+                erpnextAuthMode: erp.authMode,
+                erpnextApiKey: erp.authMode === 'api' ? erp.apiKey : undefined,
+                erpnextApiSecret: erp.authMode === 'api' ? erp.apiSecret : undefined,
+                erpnextUsername: erp.authMode === 'login' ? erp.username : undefined,
+                erpnextPassword: erp.authMode === 'login' ? erp.password : undefined,
+              })}
               className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-500 transition-colors"
             >
               <Save className="h-4 w-4" /> Save
@@ -176,42 +215,7 @@ export default function SettingsPage() {
               className="flex items-center gap-2 rounded-lg border border-line px-4 py-2 text-sm font-semibold text-ink hover:bg-hover disabled:opacity-50 transition-colors"
             >
               <Plug className="h-4 w-4" />
-              {testErpMutation.isPending ? 'Testing…' : 'Test API'}
-            </button>
-          </div>
-        </div>
-      </Section>
-
-      <Section title="Sprint Kickoff API Access" icon={Flag}>
-        <div className="space-y-3">
-          <p className="rounded-lg border border-line bg-panel/60 px-3 py-2 text-xs leading-5 text-muted">
-            Same as ERPNext: paste the site API Key and API Secret. Do not use your login password.
-          </p>
-          <Field label="Base URL">
-            <Input placeholder="https://your-sprint-kickoff.com"
-              value={sk.url} onChange={e => setSk(s => ({ ...s, url: e.target.value }))} />
-          </Field>
-          <SecretInput label="API Key" name="skApiKey" value={sk.apiKey} onChange={v => setSk(s => ({ ...s, apiKey: v }))} />
-          <SecretInput label="API Secret" name="skApiSecret" value={sk.apiSecret} onChange={v => setSk(s => ({ ...s, apiSecret: v }))} />
-          <div className="flex gap-2 pt-1">
-            <button
-              onClick={() => saveMutation.mutate({
-                sprintKickoffUrl: sk.url,
-                sprintKickoffApiKey: sk.apiKey,
-                sprintKickoffApiSecret: sk.apiSecret,
-              })}
-              className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-500 transition-colors"
-            >
-              <Save className="h-4 w-4" /> Save
-            </button>
-            <button
-              type="button"
-              onClick={() => testSkMutation.mutate()}
-              disabled={testSkMutation.isPending}
-              className="flex items-center gap-2 rounded-lg border border-line px-4 py-2 text-sm font-semibold text-ink hover:bg-hover disabled:opacity-50 transition-colors"
-            >
-              <Plug className="h-4 w-4" />
-              {testSkMutation.isPending ? 'Testing…' : 'Test API'}
+              {testErpMutation.isPending ? 'Testing…' : 'Test connection'}
             </button>
           </div>
         </div>

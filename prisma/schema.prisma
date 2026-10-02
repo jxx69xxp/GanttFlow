@@ -8,17 +8,20 @@ datasource db {
 }
 
 model Settings {
-  id                  String   @id @default(cuid())
-  erpnextBaseUrl      String?
-  erpnextApiKey       String?
-  erpnextApiSecret    String?
-  sprintKickoffUrl      String?
-  sprintKickoffToken    String?
-  sprintKickoffApiKey   String?
+  id                   String   @id @default(cuid())
+  erpnextBaseUrl       String?
+  erpnextApiKey        String?
+  erpnextApiSecret     String?
+  erpnextAuthMode      String?  // "api" | "login"
+  erpnextUsername      String?
+  erpnextPassword      String?
+  sprintKickoffUrl       String?
+  sprintKickoffToken     String?
+  sprintKickoffApiKey    String?
   sprintKickoffApiSecret String?
-  statusColors          String?
-  syncIntervalMinutes   Int      @default(15)
-  updatedAt           DateTime @updatedAt
+  statusColors           String?
+  syncIntervalMinutes    Int      @default(15)
+  updatedAt            DateTime @updatedAt
 }
 
 model TeamMember {

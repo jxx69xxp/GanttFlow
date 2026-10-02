@@ -47,13 +47,37 @@ export async function persistErpSprints(remote: MappedSprint[]) {
   return boardsFromErpSprints(remote, charts)
 }
 
-const importing = new Map<string, Promise<number>>()
+// ─── import throttle ─────────────────────────────────────────────────────────
+// Prevents hammering ERP on every page load / tasks fetch.
+// One import per sprint per TTL window (5 min). In-flight deduplication too.
 
-export async function importBacklogsForSprint(sprintKey: string, chartId?: string | null) {
+const IMPORT_TTL_MS = 5 * 60 * 1000   // 5 minutes between ERP fetches per sprint
+
+const importing   = new Map<string, Promise<number>>()   // in-flight dedup
+const lastImport  = new Map<string, number>()            // last successful import timestamp
+
+export async function importBacklogsForSprint(
+  sprintKey: string,
+  chartId?: string | null,
+  { force = false } = {},
+) {
   const key = `${toSprintDocId(sprintKey)}:${chartId ?? ''}`
+
+  // Skip if recently imported (unless forced by manual sync)
+  if (!force) {
+    const last = lastImport.get(key) ?? 0
+    if (Date.now() - last < IMPORT_TTL_MS) return 0
+  }
+
+  // Deduplicate concurrent in-flight requests for the same sprint
   const existing = importing.get(key)
   if (existing) return existing
-  const run = importBacklogsOnce(sprintKey, chartId).finally(() => importing.delete(key))
+
+  const run = importBacklogsOnce(sprintKey, chartId).then(count => {
+    lastImport.set(key, Date.now())
+    return count
+  }).finally(() => importing.delete(key))
+
   importing.set(key, run)
   return run
 }
