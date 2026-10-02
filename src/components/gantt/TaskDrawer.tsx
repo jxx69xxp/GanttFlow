@@ -17,19 +17,54 @@ interface Comment {
   creation: string
 }
 
-function stripHtml(html: string): string {
-  return html
-    .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<\/p>/gi, '\n')
-    .replace(/<\/div>/gi, '\n')
-    .replace(/<[^>]+>/g, '')
+// Allowed tags and their permitted attributes (allowlist sanitizer — no extra deps)
+const ALLOWED: Record<string, string[]> = {
+  p: [], br: [], div: [], span: [], strong: [], b: [], em: [], i: [],
+  ul: [], ol: [], li: [],
+  a: ['href', 'title'],
+  img: ['src', 'alt', 'width', 'height', 'style'],
+  h1: [], h2: [], h3: [], h4: [],
+  blockquote: [], pre: [], code: [],
+}
+
+function safeHtml(raw: string | null | undefined): string {
+  if (!raw) return ''
+  // Remove script/style/iframe blocks entirely
+  let s = raw
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/<style[\s\S]*?<\/style>/gi, '')
+    .replace(/<iframe[\s\S]*?<\/iframe>/gi, '')
+
+  // Strip tags not in allowlist, strip dangerous attributes on allowed tags
+  s = s.replace(/<\/?([a-zA-Z][a-zA-Z0-9]*)\b([^>]*)>/g, (match, tag: string, attrs: string) => {
+    const lower = tag.toLowerCase()
+    if (!(lower in ALLOWED)) return ''          // drop unknown tags
+    const allowedAttrs = ALLOWED[lower]
+    if (allowedAttrs.length === 0) return `<${lower}>`  // no attrs permitted
+
+    // Parse and filter attributes
+    const safe = [...attrs.matchAll(/([a-zA-Z-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|(\S+))/g)]
+      .filter(([, name]) => allowedAttrs.includes(name.toLowerCase()))
+      .filter(([,, dq, sq, bare]) => {
+        const val = (dq ?? sq ?? bare ?? '').toLowerCase().trim()
+        // Block javascript: URLs
+        return !val.startsWith('javascript:') && !val.startsWith('data:text')
+      })
+      .map(([, name,, dq, sq, bare]) => `${name}="${dq ?? sq ?? bare ?? ''}"`)
+      .join(' ')
+
+    return safe ? `<${lower} ${safe}>` : `<${lower}>`
+  })
+
+  // Decode entities for display
+  s = s
     .replace(/&nbsp;/g, ' ')
     .replace(/&amp;/g, '&')
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim()
+
+  return s.trim()
 }
 
 function Avatar({ name }: { name: string }) {
@@ -334,7 +369,10 @@ export function TaskDrawer({ colors = STATUS_COLORS }: { colors?: Record<TaskSta
           {selectedTask.description && (
             <section className="border-b border-line px-4 py-3">
               <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-soft">Description</p>
-              <p className="whitespace-pre-wrap text-xs leading-relaxed text-muted">{stripHtml(selectedTask.description)}</p>
+              <div
+                className="prose prose-sm max-w-none text-xs text-muted [&_img]:max-w-full [&_img]:rounded [&_a]:text-blue-500 [&_a]:underline"
+                dangerouslySetInnerHTML={{ __html: safeHtml(selectedTask.description) }}
+              />
             </section>
           )}
 
@@ -409,9 +447,10 @@ export function TaskDrawer({ colors = STATUS_COLORS }: { colors?: Record<TaskSta
                         {new Date(c.creation).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                       </span>
                     </div>
-                    <p className="mt-0.5 whitespace-pre-wrap text-xs leading-relaxed text-muted">
-                      {stripHtml(c.content)}
-                    </p>
+                    <div
+                      className="mt-0.5 text-xs leading-relaxed text-muted [&_img]:mt-1 [&_img]:max-w-full [&_img]:rounded [&_a]:text-blue-500 [&_a]:underline"
+                      dangerouslySetInnerHTML={{ __html: safeHtml(c.content) }}
+                    />
                   </div>
                 </div>
               ))}
