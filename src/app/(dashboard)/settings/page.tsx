@@ -78,7 +78,7 @@ export default function SettingsPage() {
 
   const [erp, setErp] = useState({ baseUrl: '', apiKey: '', apiSecret: '', authMode: 'api' as 'api' | 'login', username: '', password: '' })
   const [colors, setColors] = useState<Record<TaskStatus, string>>(STATUS_COLORS)
-  const [newMember, setNewMember] = useState({ email: '', name: '', role: '' })
+  const [newMember, setNewMember] = useState({ email: '', name: '', role: '', password: '', isAdmin: false })
   const [toast, setToast] = useState('')
 
   useEffect(() => {
@@ -127,20 +127,36 @@ export default function SettingsPage() {
     onError: (err: Error) => showToast(err.message),
   })
 
+  const { data: me } = useQuery<{ email: string | null; isAdmin?: boolean }>({
+    queryKey: ['me'],
+    queryFn: () => fetch('/api/me').then(r => r.json()),
+    staleTime: Infinity,
+  })
+  const isAdmin = Boolean(me?.isAdmin)
+  const teamCall = async (url: string, init: RequestInit) => {
+    const r = await fetch(url, init)
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error ?? 'Request failed')
+  }
+
   const addMemberMutation = useMutation({
-    mutationFn: (body: { email: string; name: string; role: string }) =>
-      fetch('/api/settings/team', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-        .then(r => r.json()),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['settings'] }); setNewMember({ email: '', name: '', role: '' }); showToast('Team member added') },
+    mutationFn: (body: typeof newMember) =>
+      teamCall('/api/settings/team', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
+    onSuccess: (_d, body) => {
+      qc.invalidateQueries({ queryKey: ['settings'] })
+      const existed = teamMembers.some(m => m.email.toLowerCase() === body.email.trim().toLowerCase())
+      setNewMember({ email: '', name: '', role: '', password: '', isAdmin: false })
+      showToast(existed ? (body.password ? 'Member updated and password set' : 'Member updated') : 'Team member added')
+    },
+    onError: (e: Error) => showToast(e.message),
   })
 
   const removeMemberMutation = useMutation({
-    mutationFn: (email: string) =>
-      fetch(`/api/settings/team/${encodeURIComponent(email)}`, { method: 'DELETE' }),
+    mutationFn: (email: string) => teamCall(`/api/settings/team/${encodeURIComponent(email)}`, { method: 'DELETE' }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['settings'] }); showToast('Member removed') },
+    onError: (e: Error) => showToast(e.message),
   })
 
-  const teamMembers: { id: string; email: string; name?: string; role?: string; isActive: boolean }[] = data?.teamMembers ?? []
+  const teamMembers: { id: string; email: string; name?: string; role?: string; isActive: boolean; isAdmin?: boolean; hasPassword?: boolean }[] = data?.teamMembers ?? []
 
   return (
     <div className="h-full min-h-0 overflow-y-auto">
@@ -258,16 +274,29 @@ export default function SettingsPage() {
                 <tbody className="divide-y divide-line">
                   {teamMembers.map(m => (
                     <tr key={m.id} className="hover:bg-hover/30">
-                      <td className="px-3 py-2 text-ink">{m.email}</td>
+                      <td className="px-3 py-2 text-ink">
+                        {m.email}
+                        <span className="ml-2 inline-flex gap-1 align-middle">
+                          {m.isAdmin && <span className="rounded-full bg-blue-600/10 px-1.5 py-px text-[10px] font-semibold text-blue-700 dark:text-blue-300">Admin</span>}
+                          {!m.hasPassword && <span className="rounded-full bg-orange-500/10 px-1.5 py-px text-[10px] font-semibold text-orange-700 dark:text-orange-300">No password</span>}
+                        </span>
+                      </td>
                       <td className="px-3 py-2 text-muted">{m.name ?? '—'}</td>
                       <td className="px-3 py-2 text-muted">{m.role ?? '—'}</td>
                       <td className="px-3 py-2">
-                        <button
+                        {isAdmin && <button
+                          onClick={() => setNewMember({ email: m.email, name: m.name ?? '', role: m.role ?? '', password: '', isAdmin: Boolean(m.isAdmin) })}
+                          className="mr-3 text-xs text-soft hover:text-ink"
+                        >
+                          Edit
+                        </button>}
+                        {isAdmin && m.email.toLowerCase() !== me?.email?.toLowerCase() && <button
                           onClick={() => removeMemberMutation.mutate(m.email)}
+                          aria-label={`Remove ${m.email}`}
                           className="text-soft hover:text-red-400 transition-colors"
                         >
                           <Trash2 className="h-4 w-4" />
-                        </button>
+                        </button>}
                       </td>
                     </tr>
                   ))}
@@ -275,23 +304,43 @@ export default function SettingsPage() {
               </table>
             </div>
           )}
-          <div className="flex gap-2">
-            <Input placeholder="email@company.com" value={newMember.email}
-              onChange={e => setNewMember(s => ({ ...s, email: e.target.value }))} />
-            <Input placeholder="Name" value={newMember.name} className="w-28"
-              onChange={e => setNewMember(s => ({ ...s, name: e.target.value }))} />
-            <select value={newMember.role} onChange={e => setNewMember(s => ({ ...s, role: e.target.value }))}
-              className="rounded-lg border border-line bg-panel px-2 text-sm text-ink focus:outline-none">
-              <option value="">Role</option>
-              {['Dev', 'Lead', 'QA', 'Design', 'PM'].map(r => <option key={r} value={r}>{r}</option>)}
-            </select>
-            <button
-              onClick={() => newMember.email && addMemberMutation.mutate(newMember)}
-              className="flex items-center gap-1 rounded-lg bg-green-600 px-3 py-2 text-sm font-semibold text-white hover:bg-green-500 transition-colors whitespace-nowrap"
-            >
-              <Plus className="h-4 w-4" /> Add
-            </button>
-          </div>
+          {isAdmin ? (
+            <div className="space-y-2">
+              <div className="flex flex-wrap gap-2">
+                <Input placeholder="email@company.com" value={newMember.email} aria-label="Email"
+                  onChange={e => setNewMember(s => ({ ...s, email: e.target.value }))} />
+                <Input placeholder="Name" value={newMember.name} className="w-28" aria-label="Name"
+                  onChange={e => setNewMember(s => ({ ...s, name: e.target.value }))} />
+                <select value={newMember.role} onChange={e => setNewMember(s => ({ ...s, role: e.target.value }))}
+                  aria-label="Role"
+                  className="rounded-lg border border-line bg-panel px-2 text-sm text-ink focus:outline-none">
+                  <option value="">Role</option>
+                  {['Dev', 'Lead', 'QA', 'Design', 'PM'].map(r => <option key={r} value={r}>{r}</option>)}
+                </select>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Input type="password" autoComplete="new-password" aria-label="Password"
+                  placeholder={teamMembers.some(m => m.email.toLowerCase() === newMember.email.trim().toLowerCase()) ? 'New password (leave blank to keep)' : 'Password (min 8)'}
+                  value={newMember.password} onChange={e => setNewMember(s => ({ ...s, password: e.target.value }))} />
+                <label className="flex items-center gap-1.5 text-sm text-muted">
+                  <input type="checkbox" checked={newMember.isAdmin} className="h-4 w-4 accent-blue-600"
+                    onChange={e => setNewMember(s => ({ ...s, isAdmin: e.target.checked }))} />
+                  Admin
+                </label>
+                <button
+                  onClick={() => newMember.email && addMemberMutation.mutate(newMember)}
+                  disabled={!newMember.email || addMemberMutation.isPending}
+                  className="flex items-center gap-1 rounded-lg bg-green-600 px-3 py-2 text-sm font-semibold text-white hover:bg-green-500 transition-colors whitespace-nowrap disabled:opacity-50"
+                >
+                  <Plus className="h-4 w-4" />
+                  {teamMembers.some(m => m.email.toLowerCase() === newMember.email.trim().toLowerCase()) ? 'Save' : 'Add'}
+                </button>
+              </div>
+              <p className="text-xs text-soft">To reset someone’s password, click Edit, type a new one and Save.</p>
+            </div>
+          ) : (
+            <p className="text-xs text-soft">Only admins can add members or set passwords.</p>
+          )}
         </div>
       </Section>
 

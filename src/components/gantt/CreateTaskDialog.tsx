@@ -1,9 +1,17 @@
 'use client'
 import { useState } from 'react'
 import { Plus, X } from 'lucide-react'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { TASK_STATUSES } from '@/lib/types'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { PRIORITY_ORDER, type GanttTask, type TeamMember } from '@/lib/types'
+import { STATUS_MAP } from '@/lib/erpnext/transformers'
 import { cn } from '@/lib/utils'
+import { safeHtml } from '@/lib/safeHtml'
+import { RichTextInput } from './RichTextInput'
+
+/** true if the editor holds text or an image (contentEditable leaves <br> behind when emptied) */
+const hasContent = (html: string) => /<img/i.test(html) || html.replace(/<[^>]*>|&nbsp;/g, '').trim() !== ''
+
+const FIELD = 'w-full rounded-lg border border-line bg-input px-3 py-2 text-sm text-ink'
 
 interface SprintRef {
   name: string
@@ -42,8 +50,12 @@ export function CreateTaskDialog({
     title: '',
     startDate: startDefault,
     endDate: endDefault,
-    status: 'Not Started',
-    assigneeEmail: '',
+    status: 'Open',
+    priority: '',
+    sprintPoints: '',
+    currentAssignee: '',
+    devAssignee: '',
+    description: '',
   })
   const [error, setError] = useState('')
 
@@ -56,12 +68,16 @@ export function CreateTaskDialog({
           title: form.title,
           startDate: form.startDate,
           endDate: form.endDate,
-          status: form.status,
-          assigneeEmail: form.assigneeEmail || undefined,
+          erpStatus: form.status,
+          priority: form.priority || undefined,
+          sprintPoints: form.sprintPoints || undefined,
+          currentAssignee: form.currentAssignee.trim() || undefined,
+          devAssignee: form.devAssignee.trim() || undefined,
+          description: hasContent(form.description) ? safeHtml(form.description, { proxyFiles: false }) : undefined,
           sprintName: lockedSprintName || undefined,
           sprintId: lockedSprintId || undefined,
           chartId: chartId || undefined,
-          source: 'manual',
+          source: 'erpnext',  // creates a Sprint Backlog in Frappe
         }),
       }).then(async r => {
         const json = await r.json()
@@ -72,11 +88,28 @@ export function CreateTaskDialog({
       qc.invalidateQueries({ queryKey: ['tasks'] })
       setOpen(false)
       setForm({
-        title: '', startDate: today, endDate: today, status: 'Not Started', assigneeEmail: '',
+        title: '', startDate: today, endDate: today, status: 'Open', priority: '', sprintPoints: '',
+        currentAssignee: '', devAssignee: '', description: '',
       })
     },
     onError: (e: Error) => setError(e.message),
   })
+
+  const { data: erpOptions } = useQuery<{ status?: string[]; priority?: string[] }>({
+    queryKey: ['erp-options', 'Sprint Backlogs'],
+    queryFn: () => fetch('/api/erp-options?doctype=Sprint%20Backlogs').then(r => r.json()),
+    enabled: open,
+    staleTime: Infinity,
+  })
+  const statuses = erpOptions?.status?.length ? erpOptions.status : Object.keys(STATUS_MAP)
+  const priorities = erpOptions?.priority?.length ? erpOptions.priority : Object.keys(PRIORITY_ORDER)
+  const team = qc.getQueryData<{ teamMembers?: TeamMember[] }>(['settings'])?.teamMembers ?? []
+  const people = [...new Set([
+    ...team.map(m => m.email),
+    ...qc.getQueriesData<{ tasks?: GanttTask[] }>({ queryKey: ['tasks'] })
+      .flatMap(([, d]) => d?.tasks ?? [])
+      .flatMap(t => [t.assigneeEmail, t.currentAssignee, t.devAssignee]),
+  ].filter((e): e is string => !!e))].sort()
 
   return (
     <>
@@ -100,7 +133,7 @@ export function CreateTaskDialog({
       {open && (
         <>
           <div className="fixed inset-0 z-40 bg-black/40" onClick={() => setOpen(false)} />
-          <div className="fixed left-1/2 top-1/2 z-50 w-full max-w-md -translate-x-1/2 -translate-y-1/2 rounded-xl border border-line bg-panel p-5 shadow-2xl">
+          <div className="fixed left-1/2 top-1/2 z-50 w-full max-h-[90vh] max-w-lg -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-xl border border-line bg-panel p-5 shadow-2xl">
             <div className="mb-4 flex items-center justify-between">
               <h2 className="text-sm font-semibold text-ink">Add row</h2>
               <button type="button" onClick={() => setOpen(false)} className="rounded-md p-1 text-soft hover:bg-input">
@@ -137,19 +170,44 @@ export function CreateTaskDialog({
                     className="w-full rounded-lg border border-line bg-input px-3 py-2 text-sm text-ink" />
                 </label>
               </div>
-              <label className="block space-y-1">
-                <span className="text-xs text-muted">Status</span>
-                <select value={form.status} onChange={e => setForm(s => ({ ...s, status: e.target.value }))}
-                  className="w-full rounded-lg border border-line bg-input px-3 py-2 text-sm text-ink">
-                  {TASK_STATUSES.map(s => <option key={s}>{s}</option>)}
-                </select>
-              </label>
-              <label className="block space-y-1">
-                <span className="text-xs text-muted">Assignee email</span>
-                <input value={form.assigneeEmail} onChange={e => setForm(s => ({ ...s, assigneeEmail: e.target.value }))}
-                  className="w-full rounded-lg border border-line bg-input px-3 py-2 text-sm text-ink"
-                  placeholder="optional" />
-              </label>
+              <datalist id="new-task-people">{people.map(p => <option key={p} value={p} />)}</datalist>
+              <div className="grid grid-cols-2 gap-3">
+                <label className="block space-y-1">
+                  <span className="text-xs text-muted">Status</span>
+                  <select value={form.status} onChange={e => setForm(s => ({ ...s, status: e.target.value }))} className={FIELD}>
+                    {[...new Set([form.status, ...statuses])].map(s => <option key={s}>{s}</option>)}
+                  </select>
+                </label>
+                <label className="block space-y-1">
+                  <span className="text-xs text-muted">Priority</span>
+                  <select value={form.priority} onChange={e => setForm(s => ({ ...s, priority: e.target.value }))} className={FIELD}>
+                    <option value="">—</option>
+                    {priorities.map(p => <option key={p}>{p}</option>)}
+                  </select>
+                </label>
+                <label className="col-span-2 block space-y-1">
+                  <span className="text-xs text-muted">Sprint points</span>
+                  <input type="number" inputMode="decimal" min={0} step="any" value={form.sprintPoints}
+                    onChange={e => setForm(s => ({ ...s, sprintPoints: e.target.value }))}
+                    className={FIELD} placeholder="e.g. 3" />
+                </label>
+                <label className="block space-y-1">
+                  <span className="text-xs text-muted">Current assignee</span>
+                  <input type="email" list="new-task-people" value={form.currentAssignee}
+                    onChange={e => setForm(s => ({ ...s, currentAssignee: e.target.value }))}
+                    className={FIELD} placeholder="name@company.com" />
+                </label>
+                <label className="block space-y-1">
+                  <span className="text-xs text-muted">Dev assignee</span>
+                  <input type="email" list="new-task-people" value={form.devAssignee}
+                    onChange={e => setForm(s => ({ ...s, devAssignee: e.target.value }))}
+                    className={FIELD} placeholder="name@company.com" />
+                </label>
+              </div>
+              <div className="space-y-1">
+                <label htmlFor="new-task-desc" className="text-xs text-muted">Description</label>
+                <RichTextInput id="new-task-desc" onChange={html => setForm(s => ({ ...s, description: html }))} />
+              </div>
               {error && <p className="text-xs text-red-400">{error}</p>}
               <button
                 type="button"

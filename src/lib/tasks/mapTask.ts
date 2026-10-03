@@ -51,6 +51,8 @@ export function toGanttTask(task: {
     devopsStatus: meta.devopsStatus ?? null,
     assigneeEmail: task.assigneeEmail ?? null,
     assigneeName: meta.assigneeName ?? null,
+    currentAssignee: meta.currentAssignee ?? null,
+    devAssignee: meta.devAssignee ?? null,
     qaAssignee: meta.qaAssignee ?? null,
     projectName: task.projectName ?? null,
     sprintName: task.sprintName ?? null,

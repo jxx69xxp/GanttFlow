@@ -23,6 +23,8 @@ export interface GanttTask {
   sprintPoints?: string | null
   module?: string | null
   assigneeName?: string | null
+  currentAssignee?: string | null
+  devAssignee?: string | null
   qaAssignee?: string | null
   dateAssigned?: string | null
   parentBacklogId?: string | null

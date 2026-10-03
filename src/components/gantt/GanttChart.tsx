@@ -366,7 +366,12 @@ export function GanttChart({ tasks, colors = STATUS_COLORS }: Props) {
 
   // ── today marker ──────────────────────────────────────────────────────────
   const todayCol = cols.find(c => c.isToday)
-  const todayX   = todayCol ? todayCol.x + todayCol.w / 2 : null
+  // weekends have no column in day view → put the line in the Fri/Mon gap so "today" is never missing
+  const todayIso = ymd(new Date())
+  const nextCol  = !todayCol && colMode === 'day' && cols.length && todayIso > cols[0].iso
+    ? cols.find(c => c.iso > todayIso)
+    : undefined
+  const todayX   = todayCol ? todayCol.x + todayCol.w / 2 : nextCol ? nextCol.x : null
 
   return (
     <div className="relative flex h-full min-h-0 flex-col select-none">

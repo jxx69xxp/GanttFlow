@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db/prisma'
 import { getErpNextClient } from '@/lib/erpnext/client'
 import { boardsFromErpSprints } from '@/lib/frappe/persistSprint'
-import { ERPNEXT_SPRINT_URL, isFocusedSprint } from '@/lib/frappe/sprint'
+import { ERPNEXT_SPRINT_URL } from '@/lib/frappe/sprint'
 
 function ymd(value: Date | string) {
   if (typeof value === 'string') return value.slice(0, 10)
@@ -10,8 +10,8 @@ function ymd(value: Date | string) {
 }
 
 async function boardsFromStore() {
-  const sprints = (await prisma.sprint.findMany({ orderBy: { startDate: 'desc' } }))
-    .filter(sprint => isFocusedSprint(sprint.name, sprint.externalId))
+  // stored ERP sprints already come from the CORE TEAM department query
+  const sprints = await prisma.sprint.findMany({ orderBy: { startDate: 'desc' } })
   const charts = await prisma.chart.findMany()
   return sprints.map(sprint => {
     const chart = charts.find(c => c.name.toLowerCase() === sprint.name.toLowerCase())

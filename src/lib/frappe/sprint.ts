@@ -122,6 +122,9 @@ export function sprintsFromBacklogs(rows: Array<{
 
 export const ERPNEXT_SPRINT_URL = 'https://erp.livro.systems'
 
+/** Sprint.department_profile whose sprints are imported and shown. */
+export const SPRINT_DEPARTMENT = 'CORE TEAM'
+
 export function frappeSprintListFilters(focused = false) {
   const filters: Array<[string, string, string | number]> = [['enable', '=', 1]]
   if (focused) filters.push(['sprint_name', 'like', `%${FOCUSED_SPRINT_NAME}%`])

@@ -1,5 +1,5 @@
 import { decrypt } from '../encryption'
-import { ERPNEXT_SPRINT_URL, FRAPPE_SPRINT_FIELDS, frappeSprintListFilters, frappeSprintPayload, isFocusedSprint, mapFrappeSprint, type MappedSprint } from '../frappe/sprint'
+import { ERPNEXT_SPRINT_URL, FRAPPE_SPRINT_FIELDS, SPRINT_DEPARTMENT, frappeSprintPayload, isFocusedSprint, mapFrappeSprint, type MappedSprint } from '../frappe/sprint'
 
 export function getErpNextClient(settings?: {
   erpnextBaseUrl?: string | null
@@ -137,30 +137,16 @@ export class ErpNextClient {
   }
 
   async fetchSprints(): Promise<MappedSprint[]> {
-    const fields = JSON.stringify([...FRAPPE_SPRINT_FIELDS])
-    const likes: Array<[string, string, string]> = [
-      ['sprint_name', 'like', '%CORE DEVELOPMENT%'],
-      ['sprint_name', 'like', '%CORE ENHANCEMENT%'],
-      ['name', 'like', '%CORE_DEVELOPMENT%'],
-      ['name', 'like', '%CORE_ENHANCEMENT%'],
-    ]
-    const seen = new Map<string, MappedSprint>()
-    const headers = await this.getHeaders()
-    for (const like of likes) {
-      const query = new URLSearchParams({
-        fields,
-        filters: JSON.stringify([like]),
-        order_by: 'date_from desc',
-        limit_page_length: '50',
-      })
-      const res = await fetch(`${this.baseUrl}/api/resource/Sprint?${query}`, { headers })
-      if (!res.ok) continue
-      const data = await res.json()
-      for (const sprint of (data.data ?? []).map(mapFrappeSprint)) {
-        if (isFocusedSprint(sprint.id, sprint.name)) seen.set(sprint.id, sprint)
-      }
-    }
-    return [...seen.values()].sort((a, b) => (b.start_date || '').localeCompare(a.start_date || ''))
+    const query = new URLSearchParams({
+      fields: JSON.stringify([...FRAPPE_SPRINT_FIELDS]),
+      filters: JSON.stringify([['department_profile', '=', SPRINT_DEPARTMENT]]),
+      order_by: 'date_from desc',
+      limit_page_length: '100',
+    })
+    const res = await fetch(`${this.baseUrl}/api/resource/Sprint?${query}`, { headers: await this.getHeaders() })
+    if (!res.ok) await this.readError(res, 'ERPNext Sprint fetch')
+    const data = await res.json()
+    return (data.data ?? []).map(mapFrappeSprint)
   }
 
   async createSprint(input: { name: string; startDate: string; endDate: string }): Promise<MappedSprint> {
@@ -338,6 +324,9 @@ export class ErpNextClient {
     progress: number
     status: string
     sprint_assign: string
+    priority: string
+    current_assignee: string
+    dev_assignee: string
   }>) {
     const path = taskName.startsWith('SPB-')
       ? `Sprint Backlogs/${encodeURIComponent(taskName)}`
@@ -387,6 +376,121 @@ export class ErpNextClient {
     const data = await res.json()
     return { ok: true, name: (data.data ?? data)?.name }
   }
+
+  /** Raw fetch of a Frappe attachment path (/files/... or /private/files/...) with auth. */
+  async fetchFile(path: string): Promise<Response> {
+    const { Authorization, Cookie } = await this.getHeaders()
+    // src may arrive raw ("a b.png") or pre-encoded ("a%20b.png") — normalise before encoding
+    let clean = path
+    try { clean = decodeURI(path) } catch {}
+    return fetch(`${this.baseUrl}${encodeURI(clean)}`, {
+      headers: { ...(Authorization && { Authorization }), ...(Cookie && { Cookie }), Accept: '*/*' },
+    })
+  }
+
+  /** Select-field options straight from the DocType (e.g. Sprint Backlogs.status). */
+  async fetchSelectOptions(doctype: string, fieldname: string): Promise<string[]> {
+    const res = await fetch(
+      `${this.baseUrl}/api/method/frappe.desk.form.load.getdoctype?doctype=${encodeURIComponent(doctype)}`,
+      { headers: await this.getHeaders() }
+    )
+    if (!res.ok) return []
+    const body = await res.json()
+    const meta = (body.docs ?? []).find((d: { name: string }) => d.name === doctype)
+    const field = meta?.fields?.find((f: { fieldname: string }) => f.fieldname === fieldname)
+    return String(field?.options ?? '').split('\n').map((o: string) => o.trim()).filter(Boolean)
+  }
+
+  async createSprintBacklog(input: {
+    subject: string
+    exp_start_date?: string
+    exp_end_date?: string
+    status?: string
+    priority?: string
+    sprint_assign?: string
+    current_assignee?: string
+    dev_assignee?: string
+    sprint_points?: number
+    description?: string
+  }): Promise<string> {
+    const res = await fetch(`${this.baseUrl}/api/resource/${encodeURIComponent('Sprint Backlogs')}`, {
+      method: 'POST',
+      headers: await this.getHeaders(),
+      body: JSON.stringify(Object.fromEntries(Object.entries(input).filter(([, v]) => v !== undefined && v !== ''))),
+    })
+    if (!res.ok) await this.readError(res, 'Sprint Backlog create')
+    const data = await res.json()
+    return (data.data ?? data).name
+  }
+
+  private notificationFilters(forUser: string, read?: 0 | 1) {
+    const f: Array<[string, string, unknown]> = [['for_user', '=', forUser], ['type', 'in', ['Mention', 'Assignment']]]
+    if (read !== undefined) f.push(['read', '=', read])
+    return JSON.stringify(f)
+  }
+
+  /** Frappe's own per-user feed: @mentions in comments + assignments. Paged server-side. */
+  async fetchNotificationLogs(forUser: string, { start = 0, limit = 20, read }: { start?: number; limit?: number; read?: 0 | 1 } = {}): Promise<Array<{
+    name: string; subject: string; type: string; document_type?: string; document_name?: string
+    from_user?: string; read?: number; creation: string
+  }>> {
+    const params = new URLSearchParams({
+      fields: JSON.stringify(['name', 'subject', 'type', 'document_type', 'document_name', 'from_user', 'read', 'creation']),
+      filters: this.notificationFilters(forUser, read),
+      order_by: 'creation desc',
+      limit_start: String(start),
+      limit_page_length: String(limit),
+    })
+    const res = await fetch(`${this.baseUrl}/api/resource/${encodeURIComponent('Notification Log')}?${params}`, { headers: await this.getHeaders() })
+    if (!res.ok) await this.readError(res, 'Notification Log fetch')
+    const data = await res.json()
+    return data.data ?? []
+  }
+
+  async countNotificationLogs(forUser: string, read?: 0 | 1): Promise<number> {
+    const params = new URLSearchParams({ doctype: 'Notification Log', filters: this.notificationFilters(forUser, read) })
+    const res = await fetch(`${this.baseUrl}/api/method/frappe.client.get_count?${params}`, { headers: await this.getHeaders() })
+    if (!res.ok) return 0
+    const body = await res.json().catch(() => ({}))
+    return Number(body.message) || 0
+  }
+
+  /** read: mark_as_read (always allowed for your own logs); unread: plain doc update. */
+  async setNotificationRead(name: string, read: boolean): Promise<boolean> {
+    const res = read
+      ? await fetch(`${this.baseUrl}/api/method/frappe.desk.doctype.notification_log.notification_log.mark_as_read`, {
+          method: 'POST', headers: await this.getHeaders(), body: JSON.stringify({ docname: name }),
+        })
+      : await fetch(`${this.baseUrl}/api/resource/${encodeURIComponent('Notification Log')}/${encodeURIComponent(name)}`, {
+          method: 'PUT', headers: await this.getHeaders(), body: JSON.stringify({ read: 0 }),
+        })
+    return res.ok
+  }
+
+
+
+  /** Mark every unread Mention/Assignment for a user as read. Returns how many were updated. */
+  async markAllNotificationsRead(forUser: string): Promise<number> {
+    // Frappe's own mark_all_as_read only covers the API key's user, so update this user's rows directly
+    const params = new URLSearchParams({
+      fields: JSON.stringify(['name']),
+      filters: this.notificationFilters(forUser, 0),
+      limit_page_length: '2000',
+    })
+    const res = await fetch(`${this.baseUrl}/api/resource/${encodeURIComponent('Notification Log')}?${params}`, { headers: await this.getHeaders() })
+    if (!res.ok) await this.readError(res, 'Notification Log fetch')
+    const names: string[] = ((await res.json()).data ?? []).map((r: { name: string }) => r.name)
+    for (let i = 0; i < names.length; i += 200) {  // bulk_update caps batch size
+      const docs = names.slice(i, i + 200).map(docname => ({ doctype: 'Notification Log', docname, read: 1 }))
+      const r = await fetch(`${this.baseUrl}/api/method/frappe.client.bulk_update`, {
+        method: 'POST', headers: await this.getHeaders(), body: JSON.stringify({ docs: JSON.stringify(docs) }),
+      })
+      if (!r.ok) await this.readError(r, 'Mark all read')
+    }
+    return names.length
+  }
+
+  get siteUrl() { return this.baseUrl }
 
   async fetchModified(doctype: string, docname: string): Promise<string | null> {
     const res = await fetch(

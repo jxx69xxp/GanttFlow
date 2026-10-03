@@ -6,7 +6,12 @@ import { mergeStatusColors } from '@/lib/types'
 
 export async function GET() {
   const settings = await prisma.settings.findFirst()
-  const teamMembers = await prisma.teamMember.findMany({ orderBy: { createdAt: 'asc' } })
+  const rows = await prisma.teamMember.findMany({
+    orderBy: { createdAt: 'asc' },
+    // never send password hashes to the browser
+    select: { id: true, email: true, name: true, role: true, isActive: true, isAdmin: true, passwordHash: true },
+  })
+  const teamMembers = rows.map(({ passwordHash, ...m }) => ({ ...m, hasPassword: Boolean(passwordHash) }))
 
   return NextResponse.json({
     erpnextBaseUrl:        settings?.erpnextBaseUrl ?? '',

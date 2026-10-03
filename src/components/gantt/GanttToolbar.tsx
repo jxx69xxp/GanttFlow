@@ -16,6 +16,7 @@ import { CreateSprintDialog } from './CreateSprintDialog'
 import { useQueryClient } from '@tanstack/react-query'
 
 const VIEWS: ViewMode[] = ['Day', 'Week', 'Month', 'Year']
+const fmtShort = (iso?: string) => iso ? new Date(`${iso.slice(0, 10)}T00:00:00`).toLocaleDateString('en', { month: 'short', day: 'numeric' }) : ''
 
 export interface SprintOption {
   id: string
@@ -24,6 +25,7 @@ export interface SprintOption {
   startDate?: string
   endDate?: string
   chartId?: string | null
+  status?: string
 }
 
 interface Props {
@@ -68,29 +70,43 @@ export function GanttToolbar({
 
   return (
     <div className="border-b border-line bg-panel">
-      {/* ── Row 1: sprint + view + actions ─────────────────────────────────── */}
+      {/* ── Row 0: sprint tabs ───────────────────────────────────────────── */}
+      <div className="flex items-end gap-1 overflow-x-auto border-b border-line/60 px-3 pt-1.5" role="tablist" aria-label="Sprints">
+        {sprints.length === 0 && <span className="pb-2 text-xs text-soft">No sprints</span>}
+        {sprints.map(s => {
+          const key = s.externalId || s.id
+          const active = key === (selectedSprint?.externalId || selectedSprint?.id)
+          return (
+            <button
+              key={key}
+              type="button"
+              role="tab"
+              aria-selected={active}
+              onClick={() => onSelectSprint(s)}
+              title={key}
+              className={cn(
+                'shrink-0 whitespace-nowrap rounded-t-lg border-b-2 px-3.5 pb-1.5 pt-1 text-left transition-colors',
+                active ? 'border-blue-600 bg-blue-500/[.07]' : 'border-transparent hover:bg-hover',
+              )}
+            >
+              <span className={cn('flex items-center gap-1.5 text-xs font-semibold', active ? 'text-blue-700 dark:text-blue-300' : 'text-ink')}>
+                {s.status === 'Active' && <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" aria-label="Active sprint" />}
+                {s.name}
+              </span>
+              {/* dates tell same-named sprints apart */}
+              {s.startDate && (
+                <span className="block text-[10px] tabular-nums text-soft">
+                  {fmtShort(s.startDate)} – {fmtShort(s.endDate)}
+                </span>
+              )}
+            </button>
+          )
+        })}
+        <div className="shrink-0 pb-1"><CreateSprintDialog variant="icon" onCreated={onCreatedSprint} /></div>
+      </div>
+
+      {/* ── Row 1: view + actions ─────────────────────────────────────────── */}
       <div className="flex flex-wrap items-center gap-2 px-3 py-2">
-        {/* Sprint select */}
-        <div className="flex items-center gap-1">
-          <select
-            value={selectedSprint?.externalId || selectedSprint?.id || ''}
-            onChange={e => {
-              const next = sprints.find(s => s.externalId === e.target.value || s.id === e.target.value)
-              if (next) onSelectSprint(next)
-            }}
-            className="h-8 min-w-[220px] max-w-xs rounded-md border border-blue-500/60 bg-input px-2 text-sm font-semibold text-ink focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-          >
-            {sprints.length === 0 && <option value="">No sprints</option>}
-            {sprints.map(s => (
-              <option key={s.externalId || s.id} value={s.externalId || s.id}>{s.name}</option>
-            ))}
-          </select>
-          <CreateSprintDialog variant="icon" onCreated={onCreatedSprint} />
-        </div>
-
-        {/* Divider */}
-        <div className="h-5 w-px bg-line" />
-
         {/* View mode pills */}
         <div className="flex rounded-md border border-line bg-input p-0.5">
           {VIEWS.map(v => (

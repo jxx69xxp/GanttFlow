@@ -2,7 +2,7 @@ import type { ErpSprintBacklog, ErpSprintDepend, ErpTask } from './client'
 import { displaySprintName } from '../frappe/sprint'
 import type { GanttTask, TaskStatus } from '../types'
 
-const STATUS_MAP: Record<string, TaskStatus> = {
+export const STATUS_MAP: Record<string, TaskStatus> = {
   'Open':       'Not Started',
   'Working':    'In Progress',
   'Pending Review': 'In Progress',
@@ -15,10 +15,18 @@ const STATUS_MAP: Record<string, TaskStatus> = {
   'Released':   'Completed',
 }
 
-function stripHtml(value?: string | null) {
-  if (!value) return null
-  const text = value.replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim()
-  return text || null
+
+/** Gantt status → ERP status value for write-back. */
+export const ERP_STATUS_FOR: Record<TaskStatus, string> = {
+  'Not Started': 'Open',
+  'In Progress': 'Working',
+  'Completed':   'Completed',
+  'Overdue':     'Open',      // overdue is computed from dates, not an ERP state
+  'Blocked':     'On Hold',
+}
+
+export function taskStatusFromErp(erpStatus: string): TaskStatus {
+  return STATUS_MAP[erpStatus] ?? 'Not Started'
 }
 
 export function transformErpTask(task: ErpTask): GanttTask {
@@ -133,7 +141,9 @@ export function transformSprintBacklog(row: ErpSprintBacklog): GanttTask {
     projectName:   row.project_name || row.project || null,
     sprintName:    displaySprintName(sprint) || null,
     sprintId:      sprint || null,
-    description:   stripHtml(row.description),
+    description:   row.description?.trim() || null,  // keep HTML (images); sanitized on render
+    currentAssignee: row.current_assignee || null,
+    devAssignee:   row.dev_assignee || null,
     priority:      row.priority || null,
     workType:      row.type || null,
     sprintPoints:  row.sprint_points != null && row.sprint_points !== '' ? String(row.sprint_points) : null,

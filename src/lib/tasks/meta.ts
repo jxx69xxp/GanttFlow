@@ -4,6 +4,8 @@ export interface BacklogMeta {
   sprintPoints?: string | null
   module?: string | null
   assigneeName?: string | null
+  currentAssignee?: string | null
+  devAssignee?: string | null
   qaAssignee?: string | null
   dateAssigned?: string | null
   dependencies?: string | null

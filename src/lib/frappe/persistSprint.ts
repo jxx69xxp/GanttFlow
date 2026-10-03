@@ -98,7 +98,7 @@ async function importBacklogsOnce(sprintKey: string, chartId?: string | null) {
   })
   const sprintId = stored?.externalId && !stored.externalId.startsWith('local-')
     ? stored.externalId
-    : toSprintDocId(sprintKey)
+    : sprintKey  // already the Frappe Sprint name; don't underscore it
   if (!sprintId) return 0
   const backlogs = await client.fetchSprintBacklogs([sprintId])
   if (backlogs.length === 0) return 0
@@ -138,6 +138,8 @@ async function importBacklogsOnce(sprintKey: string, chartId?: string | null) {
       sprintPoints: task.sprintPoints,
       module: task.module,
       assigneeName: task.assigneeName,
+      currentAssignee: task.currentAssignee,
+      devAssignee: task.devAssignee,
       qaAssignee: task.qaAssignee,
       dateAssigned: task.dateAssigned,
       dependencies: task.dependencies,

@@ -6,8 +6,14 @@ import {
 } from 'lucide-react'
 import { useGanttStore } from '@/store/ganttStore'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { STATUS_COLORS, TASK_STATUSES, isOverdueTask, type TaskStatus } from '@/lib/types'
+import { STATUS_COLORS, TASK_STATUSES, PRIORITY_ORDER, isOverdueTask, type TaskStatus, type GanttTask } from '@/lib/types'
 import { cn, formatDate } from '@/lib/utils'
+import { safeHtml } from '@/lib/safeHtml'
+import { ERP_STATUS_FOR, STATUS_MAP } from '@/lib/erpnext/transformers'
+
+/** Value the status dropdown edits: raw ERP status for ERP rows, Gantt status otherwise. */
+const statusValue = (t: GanttTask) =>
+  t.source === 'erpnext' ? (t.erpStatus || ERP_STATUS_FOR[t.status]) : t.status
 
 interface Comment {
   name: string
@@ -17,55 +23,7 @@ interface Comment {
   creation: string
 }
 
-// Allowed tags and their permitted attributes (allowlist sanitizer — no extra deps)
-const ALLOWED: Record<string, string[]> = {
-  p: [], br: [], div: [], span: [], strong: [], b: [], em: [], i: [],
-  ul: [], ol: [], li: [],
-  a: ['href', 'title'],
-  img: ['src', 'alt', 'width', 'height', 'style'],
-  h1: [], h2: [], h3: [], h4: [],
-  blockquote: [], pre: [], code: [],
-}
-
-function safeHtml(raw: string | null | undefined): string {
-  if (!raw) return ''
-  // Remove script/style/iframe blocks entirely
-  let s = raw
-    .replace(/<script[\s\S]*?<\/script>/gi, '')
-    .replace(/<style[\s\S]*?<\/style>/gi, '')
-    .replace(/<iframe[\s\S]*?<\/iframe>/gi, '')
-
-  // Strip tags not in allowlist, strip dangerous attributes on allowed tags
-  s = s.replace(/<\/?([a-zA-Z][a-zA-Z0-9]*)\b([^>]*)>/g, (match, tag: string, attrs: string) => {
-    const lower = tag.toLowerCase()
-    if (!(lower in ALLOWED)) return ''          // drop unknown tags
-    const allowedAttrs = ALLOWED[lower]
-    if (allowedAttrs.length === 0) return `<${lower}>`  // no attrs permitted
-
-    // Parse and filter attributes
-    const safe = [...attrs.matchAll(/([a-zA-Z-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|(\S+))/g)]
-      .filter(([, name]) => allowedAttrs.includes(name.toLowerCase()))
-      .filter(([,, dq, sq, bare]) => {
-        const val = (dq ?? sq ?? bare ?? '').toLowerCase().trim()
-        // Block javascript: URLs
-        return !val.startsWith('javascript:') && !val.startsWith('data:text')
-      })
-      .map(([, name,, dq, sq, bare]) => `${name}="${dq ?? sq ?? bare ?? ''}"`)
-      .join(' ')
-
-    return safe ? `<${lower} ${safe}>` : `<${lower}>`
-  })
-
-  // Decode entities for display
-  s = s
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-
-  return s.trim()
-}
+const INPUT = 'w-full rounded-md border border-line bg-input px-2 py-1.5 text-xs text-ink focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500/40'
 
 function Avatar({ name }: { name: string }) {
   return (
@@ -83,6 +41,10 @@ export function TaskDrawer({ colors = STATUS_COLORS }: { colors?: Record<TaskSta
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate]     = useState('')
   const [sprintId, setSprintId]   = useState('')
+  const [status, setStatus]       = useState('')
+  const [priority, setPriority]   = useState('')
+  const [currentAssignee, setCurrentAssignee] = useState('')
+  const [devAssignee, setDevAssignee] = useState('')
   const [comment, setComment]     = useState('')
   const [dirty, setDirty]         = useState(false)
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
@@ -94,6 +56,10 @@ export function TaskDrawer({ colors = STATUS_COLORS }: { colors?: Record<TaskSta
     setStartDate(selectedTask.start || '')
     setEndDate(selectedTask.end || '')
     setSprintId(selectedTask.sprintId || '')
+    setStatus(statusValue(selectedTask))
+    setPriority(selectedTask.priority || '')
+    setCurrentAssignee(selectedTask.currentAssignee ?? selectedTask.assigneeEmail ?? '')
+    setDevAssignee(selectedTask.devAssignee || '')
     setDirty(false)
     setSaveStatus('idle')
     setComment('')
@@ -107,6 +73,15 @@ export function TaskDrawer({ colors = STATUS_COLORS }: { colors?: Record<TaskSta
     staleTime: 60_000,
   })
   const sprints: Array<{ id: string; externalId?: string; name: string }> = sprintsData?.sprints ?? []
+
+  // ── select options from the Frappe DocType (status / priority) ─────────────
+  const optionsDoctype = selectedTask?.externalId?.startsWith('SPB-') ? 'Sprint Backlogs' : 'Task'
+  const { data: erpOptions } = useQuery<{ status?: string[]; priority?: string[] }>({
+    queryKey: ['erp-options', optionsDoctype],
+    queryFn: () => fetch(`/api/erp-options?doctype=${encodeURIComponent(optionsDoctype)}`).then(r => r.json()),
+    enabled: drawerOpen && selectedTask?.source === 'erpnext',
+    staleTime: Infinity,
+  })
 
   // ── comments ────────────────────────────────────────────────────────────────
   const { data: commentsData, refetch: refetchComments, isFetching: loadingComments } = useQuery({
@@ -133,6 +108,12 @@ export function TaskDrawer({ colors = STATUS_COLORS }: { colors?: Record<TaskSta
           return { ...old, tasks: (old.tasks as Array<{ id: string }>).map(t => t.id === data.task.id ? { ...t, ...data.task } : t) }
         })
         selectTask(data.task)
+      }
+      // ERP rejected the write → next sync would revert it; keep the Save button up
+      if (data?.task?.source === 'erpnext' && data.erpnextSync === false) {
+        setSaveStatus('error')
+        setTimeout(() => setSaveStatus('idle'), 3000)
+        return
       }
       setSaveStatus('saved')
       setDirty(false)
@@ -181,6 +162,21 @@ export function TaskDrawer({ colors = STATUS_COLORS }: { colors?: Record<TaskSta
 
   if (!drawerOpen || !selectedTask) return null
 
+  // assignee suggestions from tasks already loaded (free text still allowed)
+  const people = [...new Set(
+    qc.getQueriesData<{ tasks?: GanttTask[] }>({ queryKey: ['tasks'] })
+      .flatMap(([, d]) => d?.tasks ?? [])
+      .flatMap(t => [t.assigneeEmail, t.currentAssignee, t.devAssignee])
+      .filter((e): e is string => !!e),
+  )].sort()
+  const isErp = selectedTask.source === 'erpnext'
+  const withCurrent = (list: string[], v: string) => [...new Set([...list, ...(v ? [v] : [])])]
+  const priorities = withCurrent(erpOptions?.priority?.length ? erpOptions.priority : Object.keys(PRIORITY_ORDER), priority)
+  const statuses = withCurrent(
+    !isErp ? TASK_STATUSES : erpOptions?.status?.length ? erpOptions.status : Object.keys(STATUS_MAP),
+    status,
+  )
+
   const color   = colors[selectedTask.status] ?? STATUS_COLORS[selectedTask.status]
   const overdue = isOverdueTask(selectedTask)
   const isBacklog = selectedTask.externalId?.startsWith('SPB-')
@@ -197,6 +193,10 @@ export function TaskDrawer({ colors = STATUS_COLORS }: { colors?: Record<TaskSta
     if (startDate !== selectedTask!.start) payload.startDate = startDate
     if (endDate   !== selectedTask!.end)   payload.endDate   = endDate
     if (sprintId  !== selectedTask!.sprintId) payload.sprintId = sprintId
+    if (status    !== statusValue(selectedTask!)) payload[isErp ? 'erpStatus' : 'status'] = status
+    if (priority  !== (selectedTask!.priority || '')) payload.priority = priority
+    if (currentAssignee !== (selectedTask!.currentAssignee ?? selectedTask!.assigneeEmail ?? '')) payload.currentAssignee = currentAssignee
+    if (devAssignee !== (selectedTask!.devAssignee || '')) payload.devAssignee = devAssignee
     if (Object.keys(payload).length === 0) return
     saveMutation.mutate(payload)
   }
@@ -312,11 +312,72 @@ export function TaskDrawer({ colors = STATUS_COLORS }: { colors?: Record<TaskSta
             </div>
           </section>
 
+          {/* ── Priority + assignees (editable) ───────────────────────────── */}
+          <section className="border-b border-line px-4 py-3">
+            <datalist id="gf-people">{people.map(p => <option key={p} value={p} />)}</datalist>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label htmlFor="gf-status" className="mb-1 block text-[10px] font-medium text-soft">Status</label>
+                <div className="relative">
+                  <select
+                    id="gf-status"
+                    value={status}
+                    onChange={e => { setStatus(e.target.value); setDirty(true) }}
+                    className={cn(INPUT, 'appearance-none pr-7')}
+                  >
+                    {statuses.map(v => <option key={v} value={v}>{v}</option>)}
+                  </select>
+                  <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-soft" />
+                </div>
+              </div>
+              <div>
+                <label htmlFor="gf-priority" className="mb-1 block text-[10px] font-medium text-soft">Priority</label>
+                <div className="relative">
+                  <select
+                    id="gf-priority"
+                    value={priority}
+                    onChange={e => { setPriority(e.target.value); setDirty(true) }}
+                    className={cn(INPUT, 'appearance-none pr-7')}
+                  >
+                    <option value="">—</option>
+                    {priorities.map(p => <option key={p} value={p}>{p}</option>)}
+                  </select>
+                  <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-soft" />
+                </div>
+              </div>
+              <div>
+                <label htmlFor="gf-current" className="mb-1 block text-[10px] font-medium text-soft">Current assignee</label>
+                <input
+                  id="gf-current"
+                  type="email"
+                  list="gf-people"
+                  value={currentAssignee}
+                  onChange={e => { setCurrentAssignee(e.target.value); setDirty(true) }}
+                  placeholder="name@company.com"
+                  className={INPUT}
+                />
+              </div>
+              <div>
+                <label htmlFor="gf-dev" className="mb-1 block text-[10px] font-medium text-soft">
+                  Dev assignee{selectedTask.assigneeName && <span className="ml-1 text-muted">· {selectedTask.assigneeName}</span>}
+                </label>
+                <input
+                  id="gf-dev"
+                  type="email"
+                  list="gf-people"
+                  value={devAssignee}
+                  onChange={e => { setDevAssignee(e.target.value); setDirty(true) }}
+                  placeholder="name@company.com"
+                  className={INPUT}
+                />
+              </div>
+            </div>
+          </section>
+
           {/* ── Meta grid ─────────────────────────────────────────────────── */}
           <section className="border-b border-line px-4 py-3">
             <div className="grid grid-cols-2 gap-x-4 gap-y-2.5">
               {[
-                ['Priority',    selectedTask.priority],
                 ['Points',      selectedTask.sprintPoints],
                 ['Type',        selectedTask.workType],
                 ['Module',      selectedTask.module],
@@ -330,16 +391,6 @@ export function TaskDrawer({ colors = STATUS_COLORS }: { colors?: Record<TaskSta
               ) : null)}
             </div>
 
-            {/* Assignees */}
-            {(selectedTask.assigneeEmail || selectedTask.assigneeName) && (
-              <div className="mt-3 flex items-center gap-2">
-                <Avatar name={selectedTask.assigneeName || selectedTask.assigneeEmail || '?'} />
-                <div>
-                  {selectedTask.assigneeName && <p className="text-xs font-medium text-ink">{selectedTask.assigneeName}</p>}
-                  {selectedTask.assigneeEmail && <p className="text-[11px] text-soft">{selectedTask.assigneeEmail}</p>}
-                </div>
-              </div>
-            )}
             {selectedTask.qaAssignee && (
               <div className="mt-1.5 flex items-center gap-2">
                 <Avatar name={selectedTask.qaAssignee} />
@@ -502,7 +553,7 @@ export function TaskDrawer({ colors = STATUS_COLORS }: { colors?: Record<TaskSta
               {saveStatus === 'saving' ? 'Saving…' :
                saveStatus === 'saved'  ? 'Saved ✓' :
                saveStatus === 'error'  ? 'Failed — retry' :
-               'Save & sync to ERP'}
+               isErp ? 'Save & sync to Frappe' : 'Save'}
             </button>
           )}
 

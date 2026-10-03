@@ -174,7 +174,7 @@ export function GanttView() {
         ) : (
           <div className="flex h-full min-h-0 flex-col">
             <div className="shrink-0 border-b border-line bg-panel">
-              <SprintAnalytics tasks={tasks} compact />
+              <SprintAnalytics tasks={tasks} />
             </div>
             <div className="min-h-0 flex-1">
               <GanttChart tasks={tasks} colors={colors} />

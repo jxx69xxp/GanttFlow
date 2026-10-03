@@ -32,7 +32,7 @@ export async function runSync(): Promise<SyncResult> {
         [board.name, board.chartId],
       ]))
       const sprintIds = remoteSprints.map(s => s.id)
-      const backlogs = await client.fetchSprintBacklogs(sprintIds.length > 40 ? [] : sprintIds)
+      const backlogs = await client.fetchSprintBacklogs(sprintIds)  // always by id: dept sprints may not match the CORE name pattern
       const tree = await client.resolveBacklogTree(backlogs)
       const rawTasks = ganttRowsFromBacklogs(backlogs, tree)
 
