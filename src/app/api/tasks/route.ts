@@ -145,6 +145,15 @@ export async function POST(req: NextRequest) {
     } catch (e) {
       return NextResponse.json({ error: e instanceof Error ? e.message : 'Sprint Backlog create failed' }, { status: 502 })
     }
+    // Follow-up: cross-link both backlogs with a comment. Best effort — the row already exists in Frappe.
+    const followUpOf = str(body.followUpOf)
+    if (followUpOf?.startsWith('SPB-')) {
+      const esc = (v: string) => v.replace(/[&<>"]/g, c => `&#${c.charCodeAt(0)};`)
+      await Promise.all([
+        erp.addComment('Sprint Backlogs', followUpOf, `Follow-up task created: <b>${externalId}</b> — ${esc(title)}`),
+        erp.addComment('Sprint Backlogs', externalId, `Follow-up of <b>${esc(followUpOf)}</b>`),
+      ]).catch(e => console.error('Follow-up comment failed:', e))
+    }
   }
   const description = packTaskMeta(str(body.description) ?? null, { erpStatus, priority, currentAssignee, devAssignee, sprintPoints: sprintPoints?.toString() })
 

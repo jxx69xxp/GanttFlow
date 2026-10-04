@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeAll, vi } from 'vitest'
-import { openSession, sealSession } from '../../src/lib/session'
+import { needsRenewal, openSession, sealSession } from '../../src/lib/session'
 
 beforeAll(() => { process.env.AUTH_SECRET = 'test-secret' })
 
@@ -25,6 +25,16 @@ describe('session cookie', () => {
     expect('maxAge' in short.options).toBe(false)
     vi.useFakeTimers(); vi.setSystemTime(Date.now() + 13 * 3600 * 1000)
     expect(openSession(short.value)).toBeNull()
+    vi.useRealTimers()
+  })
+
+  it('remembered sessions renew past half-life; short ones never do', () => {
+    const long = openSession(sealSession('a@b.co', true).value)!
+    const short = openSession(sealSession('a@b.co', false).value)!
+    expect(needsRenewal(long)).toBe(false)
+    expect(needsRenewal(short)).toBe(false)
+    vi.useFakeTimers(); vi.setSystemTime(Date.now() + 16 * 86400 * 1000)
+    expect(needsRenewal(long)).toBe(true)
     vi.useRealTimers()
   })
 })

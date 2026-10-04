@@ -2,17 +2,16 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { BarChart2, Bell, LayoutDashboard, UserRound } from 'lucide-react'
+import { BarChart2, Bell, LayoutDashboard } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useGanttStore } from '@/store/ganttStore'
 import { useInbox, unreadCount } from '@/lib/hooks/useInbox'
 
-// Settings lives in the top bar; sprints are tabs on the Gantt page.
+// Settings + profile live in the top bar; sprints are tabs on the Gantt page.
 const NAV = [
   { href: '/', label: 'Gantt Chart', icon: BarChart2 },
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/notifications', label: 'Notifications', icon: Bell },
-  { href: '/profile', label: 'Profile', icon: UserRound },
 ]
 
 export function Sidebar() {

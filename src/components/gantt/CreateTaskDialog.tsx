@@ -27,6 +27,8 @@ interface Props {
   defaultStart?: string
   defaultEnd?: string
   chartId?: string
+  /** Prefills from this backlog and posts a cross-linking comment on both rows. */
+  followUpOf?: GanttTask
 }
 
 export function CreateTaskDialog({
@@ -37,6 +39,7 @@ export function CreateTaskDialog({
   defaultStart,
   defaultEnd,
   chartId,
+  followUpOf,
 }: Props) {
   const qc = useQueryClient()
   const [open, setOpen] = useState(false)
@@ -77,6 +80,7 @@ export function CreateTaskDialog({
           sprintName: lockedSprintName || undefined,
           sprintId: lockedSprintId || undefined,
           chartId: chartId || undefined,
+          followUpOf: followUpOf?.externalId || undefined,
           source: 'erpnext',  // creates a Sprint Backlog in Frappe
         }),
       }).then(async r => {
@@ -86,6 +90,7 @@ export function CreateTaskDialog({
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['tasks'] })
+      if (followUpOf) qc.invalidateQueries({ queryKey: ['task-comments', followUpOf.id] })
       setOpen(false)
       setForm({
         title: '', startDate: today, endDate: today, status: 'Open', priority: '', sprintPoints: '',
@@ -121,6 +126,12 @@ export function CreateTaskDialog({
             ...s,
             startDate: defaultStart || s.startDate || today,
             endDate: defaultEnd || defaultStart || s.endDate || today,
+            ...(followUpOf && {
+              title: `Follow-up: ${followUpOf.name}`,
+              priority: followUpOf.priority || '',
+              currentAssignee: followUpOf.currentAssignee ?? followUpOf.assigneeEmail ?? '',
+              devAssignee: followUpOf.devAssignee || '',
+            }),
           }))
           setOpen(true)
         }}
@@ -135,7 +146,7 @@ export function CreateTaskDialog({
           <div className="fixed inset-0 z-40 bg-black/40" onClick={() => setOpen(false)} />
           <div className="fixed left-1/2 top-1/2 z-50 w-full max-h-[90vh] max-w-lg -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-xl border border-line bg-panel p-5 shadow-2xl">
             <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-ink">Add row</h2>
+              <h2 className="text-sm font-semibold text-ink">{followUpOf ? `Follow-up to ${followUpOf.externalId}` : 'Add row'}</h2>
               <button type="button" onClick={() => setOpen(false)} className="rounded-md p-1 text-soft hover:bg-input">
                 <X className="h-4 w-4" />
               </button>
@@ -218,7 +229,7 @@ export function CreateTaskDialog({
                   'disabled:opacity-50'
                 )}
               >
-                {createMutation.isPending ? 'Creating…' : 'Add row'}
+                {createMutation.isPending ? 'Creating…' : followUpOf ? 'Create follow-up' : 'Add row'}
               </button>
             </div>
           </div>

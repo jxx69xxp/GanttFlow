@@ -6,10 +6,12 @@ import {
 } from 'lucide-react'
 import { useGanttStore } from '@/store/ganttStore'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { STATUS_COLORS, TASK_STATUSES, PRIORITY_ORDER, isOverdueTask, type TaskStatus, type GanttTask } from '@/lib/types'
+import { STATUS_COLORS, TASK_STATUSES, PRIORITY_ORDER, isOverdueTask, type TaskStatus, type GanttTask, type TeamMember } from '@/lib/types'
 import { cn, formatDate } from '@/lib/utils'
 import { safeHtml } from '@/lib/safeHtml'
 import { ERP_STATUS_FOR, STATUS_MAP } from '@/lib/erpnext/transformers'
+import { commentHtml, mentionQuery } from '@/lib/mentions'
+import { CreateTaskDialog } from './CreateTaskDialog'
 
 /** Value the status dropdown edits: raw ERP status for ERP rows, Gantt status otherwise. */
 const statusValue = (t: GanttTask) =>
@@ -46,6 +48,8 @@ export function TaskDrawer({ colors = STATUS_COLORS }: { colors?: Record<TaskSta
   const [currentAssignee, setCurrentAssignee] = useState('')
   const [devAssignee, setDevAssignee] = useState('')
   const [comment, setComment]     = useState('')
+  const [mentions, setMentions]   = useState<Record<string, string>>({})  // picked @label → email
+  const [mentionQ, setMentionQ]   = useState<string | null>(null)
   const [dirty, setDirty]         = useState(false)
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const commentRef = useRef<HTMLTextAreaElement>(null)
@@ -63,6 +67,8 @@ export function TaskDrawer({ colors = STATUS_COLORS }: { colors?: Record<TaskSta
     setDirty(false)
     setSaveStatus('idle')
     setComment('')
+    setMentions({})
+    setMentionQ(null)
   }, [selectedTask?.id])
 
   // ── sprints list ────────────────────────────────────────────────────────────
@@ -91,6 +97,14 @@ export function TaskDrawer({ colors = STATUS_COLORS }: { colors?: Record<TaskSta
     staleTime: 30_000,
   })
   const comments: Comment[] = commentsData?.comments ?? []
+
+  // @mention candidates: team members (named) + anyone seen on loaded tasks
+  const { data: settingsData } = useQuery<{ teamMembers?: TeamMember[] }>({
+    queryKey: ['settings'],
+    queryFn: () => fetch('/api/settings').then(r => r.json()),
+    enabled: drawerOpen,
+    staleTime: 5 * 60_000,
+  })
 
   // ── mutations ───────────────────────────────────────────────────────────────
   const saveMutation = useMutation({
@@ -147,6 +161,8 @@ export function TaskDrawer({ colors = STATUS_COLORS }: { colors?: Record<TaskSta
       }).then(r => r.json()),
     onSuccess: () => {
       setComment('')
+      setMentions({})
+      setMentionQ(null)
       refetchComments()
     },
   })
@@ -170,6 +186,22 @@ export function TaskDrawer({ colors = STATUS_COLORS }: { colors?: Record<TaskSta
       .filter((e): e is string => !!e),
   )].sort()
   const isErp = selectedTask.source === 'erpnext'
+  const mentionable = new Map<string, string>()  // email → label
+  for (const m of settingsData?.teamMembers ?? []) if (m.isActive) mentionable.set(m.email.toLowerCase(), m.name || m.email.split('@')[0])
+  for (const e of people) if (!mentionable.has(e.toLowerCase())) mentionable.set(e.toLowerCase(), e.split('@')[0])
+  const mentionHits = mentionQ === null ? [] : [...mentionable]
+    .filter(([email, label]) => `${label} ${email}`.toLowerCase().includes(mentionQ.toLowerCase()))
+    .slice(0, 6)
+  const sendComment = () => { if (comment.trim()) commentMutation.mutate(commentHtml(comment.trim(), mentions)) }
+  function pickMention(email: string, label: string) {
+    const el = commentRef.current
+    const caret = el?.selectionStart ?? comment.length
+    const before = comment.slice(0, caret).replace(/@[^\s@]*$/, `@${label} `)
+    setComment(before + comment.slice(caret))
+    setMentions(m => ({ ...m, [label]: email }))
+    setMentionQ(null)
+    requestAnimationFrame(() => { el?.focus(); el?.setSelectionRange(before.length, before.length) })
+  }
   const withCurrent = (list: string[], v: string) => [...new Set([...list, ...(v ? [v] : [])])]
   const priorities = withCurrent(erpOptions?.priority?.length ? erpOptions.priority : Object.keys(PRIORITY_ORDER), priority)
   const statuses = withCurrent(
@@ -508,24 +540,52 @@ export function TaskDrawer({ colors = STATUS_COLORS }: { colors?: Record<TaskSta
             </div>
 
             {/* add comment */}
-            <div className="mt-3 flex gap-2">
+            <div className="relative mt-3 flex gap-2">
+              {mentionHits.length > 0 && (
+                <ul role="listbox" aria-label="Mention someone" className="absolute bottom-full left-0 z-10 mb-1 w-64 overflow-hidden rounded-md border border-line bg-panel shadow-lg">
+                  {mentionHits.map(([email, label], i) => (
+                    <li key={email}>
+                      <button
+                        type="button"
+                        role="option"
+                        aria-selected={i === 0}
+                        onMouseDown={e => { e.preventDefault(); pickMention(email, label) }}
+                        className={cn('flex w-full flex-col px-2.5 py-1.5 text-left hover:bg-hover', i === 0 && 'bg-hover')}
+                      >
+                        <span className="text-xs font-medium text-ink">{label}</span>
+                        <span className="truncate text-[10px] text-soft">{email}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
               <textarea
                 ref={commentRef}
                 value={comment}
-                onChange={e => setComment(e.target.value)}
+                onChange={e => {
+                  setComment(e.target.value)
+                  setMentionQ(mentionQuery(e.target.value.slice(0, e.target.selectionStart)))
+                }}
+                onBlur={() => setMentionQ(null)}
                 onKeyDown={e => {
-                  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && comment.trim()) {
-                    commentMutation.mutate(comment.trim())
+                  if (mentionHits.length && (e.key === 'Enter' || e.key === 'Tab')) {
+                    e.preventDefault()
+                    pickMention(...mentionHits[0])
+                  } else if (e.key === 'Escape' && mentionQ !== null) {
+                    e.stopPropagation()
+                    setMentionQ(null)
+                  } else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                    sendComment()
                   }
                 }}
-                placeholder="Add a comment… (⌘↵ to send)"
+                placeholder="Add a comment… @ to mention (⌘↵ to send)"
                 rows={2}
                 className="flex-1 resize-none rounded-md border border-line bg-input px-2.5 py-2 text-xs text-ink placeholder:text-soft focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500/40"
               />
               <button
                 type="button"
                 disabled={!comment.trim() || commentMutation.isPending}
-                onClick={() => commentMutation.mutate(comment.trim())}
+                onClick={sendComment}
                 className="self-end rounded-md bg-blue-600 p-2 text-white hover:bg-blue-500 disabled:opacity-40"
               >
                 <Send className="h-3.5 w-3.5" />
@@ -567,6 +627,16 @@ export function TaskDrawer({ colors = STATUS_COLORS }: { colors?: Record<TaskSta
               <CheckCircle className="h-4 w-4" />
               {completeMutation.isPending ? 'Marking…' : 'Mark complete'}
             </button>
+          )}
+
+          {/* Follow-up: new backlog in the same sprint, cross-linked by comments */}
+          {isBacklog && selectedTask.sprintId && (
+            <CreateTaskDialog
+              label="Add follow-up task"
+              followUpOf={selectedTask}
+              sprintId={selectedTask.sprintId}
+              sprintName={selectedTask.sprintName ?? undefined}
+            />
           )}
 
           {/* Open in ERP */}

@@ -6,7 +6,7 @@ export const SESSION_COOKIE = 'gf_session'
 export const REMEMBER_DAYS = 30
 const SHORT_HOURS = 12
 
-export interface Session { email: string; exp: number }
+export interface Session { email: string; exp: number; remember?: boolean }
 
 function key() {
   const secret = process.env.AUTH_SECRET
@@ -16,7 +16,7 @@ function key() {
 
 export function sealSession(email: string, remember: boolean) {
   const maxAge = remember ? REMEMBER_DAYS * 86400 : SHORT_HOURS * 3600
-  const payload: Session = { email, exp: Date.now() + maxAge * 1000 }
+  const payload: Session = { email, exp: Date.now() + maxAge * 1000, remember }
   const iv = randomBytes(12)
   const cipher = createCipheriv('aes-256-gcm', key(), iv)
   const body = Buffer.concat([cipher.update(JSON.stringify(payload), 'utf8'), cipher.final()])
@@ -45,6 +45,9 @@ export function openSession(value?: string | null): Session | null {
     return null  // tampered, wrong secret, or garbage
   }
 }
+
+/** Remembered sessions slide: past half their life, any request re-issues a fresh 30-day cookie. */
+export const needsRenewal = (s: Session) => Boolean(s.remember) && s.exp - Date.now() < (REMEMBER_DAYS * 86400 * 1000) / 2
 
 /** Route handlers: `getSession(req)` */
 export const getSession = (req: { cookies: { get(name: string): { value: string } | undefined } }) =>

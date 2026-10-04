@@ -1,12 +1,15 @@
 'use client'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { Settings, BarChart2, Moon, Sun, PanelLeft, Bell, LogOut } from 'lucide-react'
+import { Settings, BarChart2, Moon, Sun, PanelLeft, Bell, LogOut, UserRound } from 'lucide-react'
+import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { cn } from '@/lib/utils'
 import { useTheme } from './ThemeProvider'
 import { useGanttStore } from '@/store/ganttStore'
 import { useInbox, unreadCount } from '@/lib/hooks/useInbox'
+
+const ITEM = 'flex cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 text-sm text-ink outline-none data-[highlighted]:bg-hover'
 
 export function TopNav() {
   const pathname = usePathname()
@@ -69,34 +72,42 @@ export function TopNav() {
             {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
           </button>
 
-          <Link
-            href="/settings"
-            className={cn(
-              'flex items-center gap-2 rounded-md px-3 py-1.5 text-sm font-medium',
-              pathname === '/settings'
-                ? 'bg-blue-600 text-white'
-                : 'text-muted hover:bg-hover hover:text-ink'
-            )}
-          >
-            <Settings className="h-4 w-4" />
-            <span className="hidden sm:inline">Settings</span>
-          </Link>
-
           {me?.email && (
-            <div className="ml-1 flex items-center gap-2 border-l border-line pl-3">
-              <Link href="/profile" className="hidden max-w-[180px] truncate text-xs text-muted hover:text-ink hover:underline sm:inline" title={me.email}>
-                {me.name || me.email}
-              </Link>
-              <button
-                type="button"
-                onClick={signOut}
-                className="flex h-9 w-9 items-center justify-center rounded-md border border-line bg-input text-ink hover:bg-hover"
-                aria-label="Sign out"
-                title="Sign out"
+            <DropdownMenu.Root>
+              <DropdownMenu.Trigger
+                className="ml-1 flex items-center gap-2 rounded-full py-1 pl-1 pr-1 hover:bg-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50 sm:pr-3"
+                aria-label="Account menu"
+                title={me.email}
               >
-                <LogOut className="h-4 w-4" />
-              </button>
-            </div>
+                <span className="flex h-7 w-7 items-center justify-center rounded-full bg-blue-600 text-sm font-bold uppercase text-white">
+                  {(me.name || me.email)[0]}
+                </span>
+                <span className="hidden max-w-[160px] truncate text-sm font-medium text-ink sm:inline">{me.name || me.email}</span>
+              </DropdownMenu.Trigger>
+              <DropdownMenu.Portal>
+                <DropdownMenu.Content align="end" sideOffset={6} className="z-50 min-w-[200px] rounded-lg border border-line bg-panel p-1 shadow-xl">
+                  <div className="px-2.5 py-2">
+                    {me.name && <p className="truncate text-sm font-semibold text-ink">{me.name}</p>}
+                    <p className="truncate text-xs text-muted">{me.email}</p>
+                  </div>
+                  <DropdownMenu.Separator className="my-1 h-px bg-line" />
+                  <DropdownMenu.Item asChild>
+                    <Link href="/profile" className={cn(ITEM, pathname === '/profile' && 'font-semibold')}>
+                      <UserRound className="h-4 w-4" /> Profile
+                    </Link>
+                  </DropdownMenu.Item>
+                  <DropdownMenu.Item asChild>
+                    <Link href="/settings" className={cn(ITEM, pathname === '/settings' && 'font-semibold')}>
+                      <Settings className="h-4 w-4" /> Settings
+                    </Link>
+                  </DropdownMenu.Item>
+                  <DropdownMenu.Separator className="my-1 h-px bg-line" />
+                  <DropdownMenu.Item onSelect={signOut} className={ITEM}>
+                    <LogOut className="h-4 w-4" /> Sign out
+                  </DropdownMenu.Item>
+                </DropdownMenu.Content>
+              </DropdownMenu.Portal>
+            </DropdownMenu.Root>
           )}
         </div>
       </nav>
