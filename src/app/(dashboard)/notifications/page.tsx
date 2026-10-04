@@ -41,7 +41,7 @@ export default function NotificationsPage() {
     // backlog from a sprint not loaded yet → import it from ERP, then open the same drawer
     setOpening(item.name)
     try {
-      const r = await fetch(`/api/tasks/resolve?externalId=${encodeURIComponent(item.document_name)}`)
+      const r = await fetch(`/api/tasks/resolve?${new URLSearchParams({ externalId: item.document_name, doctype: item.document_type ?? '' })}`)
       const json = await r.json()
       if (!r.ok) throw new Error(json.error ?? 'Could not open task')
       selectTask(json.task)

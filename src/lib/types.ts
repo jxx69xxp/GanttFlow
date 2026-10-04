@@ -31,6 +31,8 @@ export interface GanttTask {
   parentBacklogName?: string | null
   source: string
   externalId: string
+  /** set for docs opened outside a sprint (Sprint Archive, Product Backlog…): drawer is read-only */
+  erpDoctype?: string | null
 }
 
 export interface GanttBoard {
