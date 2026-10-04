@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getSession } from '@/lib/session'
+import { SESSION_COOKIE, getSession, needsRenewal, sealSession } from '@/lib/session'
 
 // Everything needs a session except the login page/API and the cron endpoint (it has its own bearer secret).
 export function proxy(req: NextRequest) {
@@ -9,7 +9,14 @@ export function proxy(req: NextRequest) {
   if (pathname === '/login') {
     return session ? NextResponse.redirect(new URL('/', req.url)) : NextResponse.next()
   }
-  if (session) return NextResponse.next()
+  if (session) {
+    const res = NextResponse.next()
+    if (needsRenewal(session)) {
+      const { value, options } = sealSession(session.email, true)
+      res.cookies.set(SESSION_COOKIE, value, options)
+    }
+    return res
+  }
 
   if (pathname.startsWith('/api/')) {
     return NextResponse.json({ error: 'Not signed in' }, { status: 401 })
