@@ -14,6 +14,9 @@ import { commentHtml, mentionQuery } from '@/lib/mentions'
 import { CreateTaskDialog } from './CreateTaskDialog'
 
 /** Value the status dropdown edits: raw ERP status for ERP rows, Gantt status otherwise. */
+const commentsUrl = (t: GanttTask) =>
+  `/api/tasks/${encodeURIComponent(t.id)}/comments${t.erpDoctype ? `?doctype=${encodeURIComponent(t.erpDoctype)}` : ''}`
+
 const statusValue = (t: GanttTask) =>
   t.source === 'erpnext' ? (t.erpStatus || ERP_STATUS_FOR[t.status]) : t.status
 
@@ -92,7 +95,7 @@ export function TaskDrawer({ colors = STATUS_COLORS }: { colors?: Record<TaskSta
   // ── comments ────────────────────────────────────────────────────────────────
   const { data: commentsData, refetch: refetchComments, isFetching: loadingComments } = useQuery({
     queryKey: ['task-comments', selectedTask?.id],
-    queryFn: () => fetch(`/api/tasks/${selectedTask!.id}/comments`).then(r => r.json()),
+    queryFn: () => fetch(commentsUrl(selectedTask!)).then(r => r.json()),
     enabled: drawerOpen && !!selectedTask,
     staleTime: 30_000,
   })
@@ -154,7 +157,7 @@ export function TaskDrawer({ colors = STATUS_COLORS }: { colors?: Record<TaskSta
 
   const commentMutation = useMutation({
     mutationFn: (content: string) =>
-      fetch(`/api/tasks/${selectedTask!.id}/comments`, {
+      fetch(commentsUrl(selectedTask!), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content }),
@@ -212,6 +215,7 @@ export function TaskDrawer({ colors = STATUS_COLORS }: { colors?: Record<TaskSta
   const color   = colors[selectedTask.status] ?? STATUS_COLORS[selectedTask.status]
   const overdue = isOverdueTask(selectedTask)
   const isBacklog = selectedTask.externalId?.startsWith('SPB-')
+  const readOnly = Boolean(selectedTask.erpDoctype)  // not in any sprint here → view + comment only
   const erpUrl  = selectedTask.source === 'erpnext' && selectedTask.externalId
     ? `#erp-${selectedTask.externalId}`  // placeholder — real URL would need ERP base URL
     : null
@@ -244,7 +248,7 @@ export function TaskDrawer({ colors = STATUS_COLORS }: { colors?: Record<TaskSta
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
               <span className="text-[10px] font-semibold uppercase tracking-wider text-soft">
-                {isBacklog ? 'Sprint Backlog' : 'Task'}
+                {selectedTask.erpDoctype ?? (isBacklog ? 'Sprint Backlog' : 'Task')}
               </span>
               {selectedTask.externalId && (
                 <span className="rounded bg-hover px-1.5 py-0.5 font-mono text-[10px] text-muted">
@@ -293,6 +297,8 @@ export function TaskDrawer({ colors = STATUS_COLORS }: { colors?: Record<TaskSta
         {/* ── scrollable body ─────────────────────────────────────────────── */}
         <div className="flex-1 overflow-y-auto">
 
+          {/* edits sync to a sprint row; docs outside a sprint are view-only */}
+          <fieldset disabled={readOnly} className="contents">
           {/* ── Timeline edit ──────────────────────────────────────────────── */}
           <section className="border-b border-line px-4 py-3">
             <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-muted">
@@ -405,6 +411,8 @@ export function TaskDrawer({ colors = STATUS_COLORS }: { colors?: Record<TaskSta
               </div>
             </div>
           </section>
+
+          </fieldset>
 
           {/* ── Meta grid ─────────────────────────────────────────────────── */}
           <section className="border-b border-line px-4 py-3">
@@ -618,7 +626,7 @@ export function TaskDrawer({ colors = STATUS_COLORS }: { colors?: Record<TaskSta
           )}
 
           {/* Complete */}
-          {selectedTask.status !== 'Completed' && (
+          {!readOnly && selectedTask.status !== 'Completed' && (
             <button
               onClick={() => completeMutation.mutate()}
               disabled={completeMutation.isPending}
@@ -630,7 +638,7 @@ export function TaskDrawer({ colors = STATUS_COLORS }: { colors?: Record<TaskSta
           )}
 
           {/* Follow-up: new backlog in the same sprint, cross-linked by comments */}
-          {isBacklog && selectedTask.sprintId && (
+          {!readOnly && isBacklog && selectedTask.sprintId && (
             <CreateTaskDialog
               label="Add follow-up task"
               followUpOf={selectedTask}
@@ -643,7 +651,7 @@ export function TaskDrawer({ colors = STATUS_COLORS }: { colors?: Record<TaskSta
           {erpUrl && (
             <p className="flex items-center gap-1 text-center text-[11px] text-soft">
               <Link2 className="h-3 w-3" />
-              {isBacklog ? 'Sprint Backlogs' : 'ERPNext'} · {selectedTask.externalId}
+              {selectedTask.erpDoctype ?? (isBacklog ? 'Sprint Backlogs' : 'ERPNext')} · {selectedTask.externalId}
             </p>
           )}
         </div>

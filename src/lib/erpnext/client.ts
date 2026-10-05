@@ -56,6 +56,7 @@ export interface ErpSprintDepend {
 
 export interface ErpSprintBacklog {
   name: string
+  doctype?: string
   subject?: string
   exp_start_date?: string
   exp_end_date?: string
@@ -167,7 +168,7 @@ export class ErpNextClient {
     })
   }
 
-  private async fetchSprintBacklogDoc(doctype: string, name: string): Promise<ErpSprintBacklog | null> {
+  async fetchSprintBacklogDoc(doctype: string, name: string): Promise<ErpSprintBacklog | null> {
     const doctypes = doctype ? [doctype, 'Sprint Backlogs', 'Sprint Backlog'] : ['Sprint Backlogs', 'Sprint Backlog']
     const headers = await this.getHeaders()
     const seen = new Set<string>()
